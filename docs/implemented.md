@@ -1297,6 +1297,288 @@ order = await orders.insert({
 
 ---
 
+## Phase 7: Views Support ✅ COMPLETE
+
+Phase 7 adds database views for read-only access to derived data:
+- ✨ Create views with `db.create_view()`
+- ✨ Reflect existing views with `db.reflect_view()`
+- ✨ Dynamic view access via `db.v.viewname`
+- ✨ Read-only operations (SELECT, GET, LOOKUP)
+- ✨ Write operations blocked (INSERT, UPDATE, DELETE)
+- ✨ Dataclass support for views
+- ✨ Drop views with `view.drop()`
+
+### Create Views
+
+```python
+from deebase import Database
+
+db = Database("sqlite+aiosqlite:///myapp.db")
+
+# Create a table first
+class User:
+    id: int
+    name: str
+    email: str
+    active: bool
+
+users = await db.create(User, pk='id')
+
+# Insert data
+await users.insert({"name": "Alice", "email": "alice@example.com", "active": True})
+await users.insert({"name": "Bob", "email": "bob@example.com", "active": False})
+
+# Create a view
+active_users = await db.create_view(
+    "active_users",
+    "SELECT * FROM user WHERE active = 1"
+)
+
+# Query the view
+results = await active_users()
+print(results)  # [{'id': 1, 'name': 'Alice', 'email': 'alice@example.com', 'active': 1}]
+```
+
+### Views with JOIN
+
+```python
+class User:
+    id: int
+    name: str
+
+class Post:
+    id: int
+    title: str
+    user_id: int
+    views: int
+
+users = await db.create(User, pk='id')
+posts = await db.create(Post, pk='id')
+
+# Insert data
+await users.insert({"name": "Alice"})
+await posts.insert({"title": "My Post", "user_id": 1, "views": 100})
+
+# Create view with JOIN
+posts_with_authors = await db.create_view(
+    "posts_with_authors",
+    """
+    SELECT p.id, p.title, p.views, u.name as author_name
+    FROM post p
+    JOIN user u ON p.user_id = u.id
+    """
+)
+
+# Query the view
+results = await posts_with_authors()
+for row in results:
+    print(f"{row['title']} by {row['author_name']} ({row['views']} views)")
+```
+
+### Replace Existing Views
+
+```python
+# Create view
+view = await db.create_view("my_view", "SELECT * FROM users")
+
+# Replace it with new SQL
+view = await db.create_view(
+    "my_view",
+    "SELECT id, name FROM users",
+    replace=True
+)
+```
+
+### Query Operations on Views
+
+```python
+# Create view
+view = await db.create_view("user_view", "SELECT * FROM user")
+
+# SELECT all
+all_users = await view()
+
+# SELECT with limit
+limited = await view(limit=10)
+
+# GET by first column (pseudo-PK)
+user = await view[1]  # Uses first column (id) as key
+
+# LOOKUP
+found = await view.lookup(email="alice@example.com")
+
+# with_pk parameter works
+results = await view(with_pk=True)
+for pk, record in results:
+    print(f"PK={pk}: {record}")
+```
+
+### Read-Only Enforcement
+
+```python
+view = await db.create_view("user_view", "SELECT * FROM user")
+
+# Write operations are blocked
+try:
+    await view.insert({"name": "Alice"})
+except NotImplementedError:
+    print("Cannot insert into a view")
+
+try:
+    await view.update({"id": 1, "name": "Updated"})
+except NotImplementedError:
+    print("Cannot update a view")
+
+try:
+    await view.delete(1)
+except NotImplementedError:
+    print("Cannot delete from a view")
+
+try:
+    await view.upsert({"name": "Alice"})
+except NotImplementedError:
+    print("Cannot upsert into a view")
+```
+
+### Dynamic View Access
+
+```python
+# After creating view, access via db.v
+active_users = await db.create_view("active_users", "SELECT * FROM user WHERE active = 1")
+
+# Access by attribute
+view = db.v.active_users  # Sync cache access
+
+# Access by index
+view = db.v['active_users']
+
+# Multiple views
+active, inactive = db.v['active_users', 'inactive_users']
+```
+
+### Reflect Existing Views
+
+```python
+# Create view with raw SQL
+await db.q("CREATE VIEW user_names AS SELECT id, name FROM user")
+
+# Reflect the view
+view = await db.reflect_view('user_names')
+
+# Now accessible via db.v
+view = db.v.user_names  # Cache hit
+
+# Query it
+results = await view()
+```
+
+### Views with Dataclass Support
+
+```python
+# Create view
+view = await db.create_view("user_view", "SELECT * FROM user")
+
+# Enable dataclass mode
+UserViewDC = view.dataclass()
+
+# Queries return dataclass instances
+results = await view()
+for user in results:
+    print(user.name)  # Type-safe field access
+    print(user.email)
+```
+
+### Drop Views
+
+```python
+view = await db.create_view("temp_view", "SELECT * FROM user")
+
+# Drop the view
+await view.drop()
+
+# View is now gone - can create again
+view = await db.create_view("temp_view", "SELECT * FROM user")
+```
+
+### Complete Views Example
+
+```python
+from deebase import Database
+
+db = Database("sqlite+aiosqlite:///myapp.db")
+
+# Create tables
+class User:
+    id: int
+    name: str
+    status: str
+
+class Order:
+    id: int
+    user_id: int
+    total: float
+    status: str
+
+users = await db.create(User, pk='id')
+orders = await db.create(Order, pk='id')
+
+# Insert data
+await users.insert({"name": "Alice", "status": "active"})
+await users.insert({"name": "Bob", "status": "inactive"})
+await orders.insert({"user_id": 1, "total": 99.99, "status": "completed"})
+await orders.insert({"user_id": 1, "total": 149.99, "status": "pending"})
+
+# Create views
+active_users = await db.create_view(
+    "active_users",
+    "SELECT * FROM user WHERE status = 'active'"
+)
+
+completed_orders = await db.create_view(
+    "completed_orders",
+    "SELECT * FROM 'order' WHERE status = 'completed'"
+)
+
+user_orders = await db.create_view(
+    "user_orders",
+    """
+    SELECT u.name, o.total, o.status
+    FROM 'order' o
+    JOIN user u ON o.user_id = u.id
+    """
+)
+
+# Query views
+active = await active_users()
+print(f"Active users: {len(active)}")
+
+completed = await completed_orders()
+print(f"Completed orders: {len(completed)}")
+
+user_order_data = await user_orders()
+for row in user_order_data:
+    print(f"{row['name']}: ${row['total']} ({row['status']})")
+
+# Access via db.v
+view = db.v.active_users
+results = await view()
+```
+
+### Testing
+
+- **19 new Phase 7 tests** - All passing ✅
+- **161 total tests** (Phases 1-7) - All passing ✅
+- Comprehensive coverage:
+  - View creation (simple, JOIN, aggregation)
+  - View querying (SELECT, GET, LOOKUP)
+  - Read-only enforcement
+  - View reflection
+  - Dynamic access via db.v
+  - Dataclass support
+  - View dropping
+
+---
+
 ## Dependencies
 
 - Python 3.14+

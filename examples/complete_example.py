@@ -181,8 +181,45 @@ async def main():
     print(f"   Average views per post: {avg_views:.1f}")
     print(f"   Total authors: {len(all_authors)}\n")
 
+    # Views support (Phase 7)
+    print("10. Creating and querying views...")
+
+    # Create view for popular posts
+    popular_posts = await db.create_view(
+        "popular_posts",
+        "SELECT * FROM post WHERE view_count > 50 AND published = 1"
+    )
+    print(f"   • Created view: {popular_posts._name}")
+
+    # Create view with JOIN
+    posts_with_authors = await db.create_view(
+        "posts_with_authors",
+        """
+        SELECT p.title, p.view_count, a.name as author_name
+        FROM post p
+        JOIN author a ON p.author_id = a.id
+        WHERE p.published = 1
+        """
+    )
+    print(f"   • Created view: {posts_with_authors._name}")
+
+    # Query views
+    popular = await popular_posts()
+    print(f"   • Popular posts: {len(popular)}")
+
+    # Access via db.v
+    view = db.v.posts_with_authors
+    results = await view()
+    print(f"   • Posts with authors view: {len(results)} rows")
+    for row in results:
+        print(f"     - \"{row['title']}\" by {row['author_name']}")
+    print()
+
     # Clean up
-    print("10. Cleaning up...")
+    print("11. Cleaning up...")
+    await popular_posts.drop()
+    await posts_with_authors.drop()
+    print("   ✓ Dropped views")
     await posts.drop()
     await authors.drop()
     await db.close()
