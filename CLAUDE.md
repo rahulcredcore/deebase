@@ -185,6 +185,41 @@ src/deebase/
 See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 8-phase roadmap.
 See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
 
+## Examples
+
+Runnable examples are available in the `examples/` folder:
+
+```bash
+# Phase 1: Raw SQL queries
+uv run examples/phase1_raw_sql.py
+
+# Phase 2: Table creation from Python classes
+uv run examples/phase2_table_creation.py
+
+# Complete example: Blog database with authors and posts
+uv run examples/complete_example.py
+```
+
+All examples use in-memory databases and demonstrate:
+- Database connection and setup
+- Raw SQL execution
+- Table creation with rich types (str, Text, dict/JSON)
+- Schema inspection
+- Column access
+- Practical usage patterns
+
+See [examples/README.md](examples/README.md) for details.
+
+## Documentation
+
+DeeBase includes comprehensive documentation:
+
+- **[docs/implemented.md](docs/implemented.md)** - User guide showing what works at each phase
+- **[docs/how-it-works.md](docs/how-it-works.md)** - Technical guide explaining SQLAlchemy internals
+- **[docs/types_reference.md](docs/types_reference.md)** - Complete type system reference
+- **[docs/implementation_plan.md](docs/implementation_plan.md)** - 8-phase development roadmap
+- **[examples/](examples/)** - Runnable code examples
+
 ## Contributing
 
 This project is in early development. The implementation follows an 8-phase plan documented in `docs/implementation_plan.md`.
