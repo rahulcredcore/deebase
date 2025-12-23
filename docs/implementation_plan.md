@@ -369,47 +369,117 @@ print(articles.schema)  # View CREATE TABLE SQL
 await articles.drop()   # Drop table
 ```
 
-### Phase 3: Basic CRUD Without Dataclasses ⬅️ CURRENT PHASE
+### Phase 3: CRUD Operations ✅ COMPLETE
 
-1. **Table.insert() returning dicts**
+**Status:** All items completed
+
+1. **✅ Table.insert() returning dicts**
    - Accept dict input
    - Execute SQLAlchemy insert
-   - Return inserted row as dict
-   - Handle auto-generated PKs
+   - Return inserted row as dict with auto-generated PKs
+   - Handle composite primary keys
+   - Apply xtra filters automatically
 
-2. **Table.update()**
+2. **✅ Table.update()**
    - Update by PK in record
    - Return updated record dict
    - Raise NotFoundError if record not found
+   - Respect xtra filters
 
-3. **Table.upsert()**
-   - Check if record exists by PK
+3. **✅ Table.upsert()**
+   - Check if record exists by PK with SELECT
    - Insert or update accordingly
-   - Use dialect-specific syntax (INSERT OR REPLACE for SQLite, ON CONFLICT for PostgreSQL)
+   - Database-agnostic implementation (SELECT → INSERT/UPDATE)
    - Return upserted record dict
+   - Handles missing PKs (inserts)
 
-4. **Table.delete()**
-   - Delete by PK value
+4. **✅ Table.delete()**
+   - Delete by PK value (single or composite)
    - Raise NotFoundError if record not found
+   - Respect xtra filters
 
-5. **Table.__call__() and Table[pk]**
+5. **✅ Table.__call__() and Table[pk]**
    - Implement select all/with limit
-   - Implement get by primary key
-   - Return dicts
+   - Implement get by primary key (single and composite)
+   - Return dicts (or dataclasses when _dataclass_cls is set)
    - Raise NotFoundError for missing records
+   - with_pk parameter returns (pk_value, record) tuples
 
-6. **Table.lookup()**
+6. **✅ Table.lookup()**
    - Query with WHERE conditions
    - Return single record dict
    - Raise NotFoundError if not found
+   - Support multiple filter conditions
 
-7. **Tests**
+7. **✅ Tests**
    - Full CRUD cycle with dicts (including upsert)
    - Error cases (NotFoundError)
    - Composite primary keys
    - Upsert insert vs update behavior
+   - Rich types (Text, JSON, datetime, Optional)
+   - xtra() filtering on all operations
+   - with_pk parameter
+   - **27 new tests, all passing**
 
-### Phase 4: Dataclass Support
+**Deliverables:**
+- Complete CRUD operations (insert, update, upsert, delete, select, lookup)
+- Composite primary key support throughout
+- Auto-generated PK handling
+- xtra() filtering applies to all operations
+- Comprehensive error handling with NotFoundError
+- with_pk parameter for accessing primary key values
+- 105 total passing tests (78 + 27 new)
+- Documentation: Full Phase 3 section in implemented.md and how-it-works.md
+- Examples: phase3_crud_operations.py and updated complete_example.py
+
+**What Works Now:**
+```python
+class User:
+    id: int
+    name: str
+    email: str
+
+users = await db.create(User, pk='id')
+
+# INSERT
+user = await users.insert({"name": "Alice", "email": "alice@example.com"})
+# Returns: {'id': 1, 'name': 'Alice', 'email': 'alice@example.com'}
+
+# SELECT
+all_users = await users()
+limited = await users(limit=10)
+with_pks = await users(with_pk=True)  # [(1, {...}), (2, {...}), ...]
+
+# GET by PK
+user = await users[1]
+
+# LOOKUP
+user = await users.lookup(email="alice@example.com")
+
+# UPDATE
+user['name'] = "Alice Smith"
+updated = await users.update(user)
+
+# UPSERT
+await users.upsert({"id": 1, "name": "Updated", "email": "new@example.com"})
+
+# DELETE
+await users.delete(1)
+
+# xtra() filtering
+admin_users = users.xtra(role="admin")
+admins = await admin_users()  # Only admin users
+```
+
+**Key Implementation Details:**
+- Built on SQLAlchemy Core DML (sa.insert, sa.update, sa.delete, sa.select)
+- Session-per-operation pattern with auto-commit/rollback
+- Insert + SELECT pattern to fetch complete records with auto-generated values
+- Database-agnostic upsert (SELECT → INSERT/UPDATE)
+- Composite PK support via tuple handling
+- Record conversion via _to_record() and _from_input() helpers
+
+### Phase 4: Dataclass Support ⬅️ CURRENT PHASE
 
 1. **Dataclass generation**
    - `Table.dataclass()` implementation
