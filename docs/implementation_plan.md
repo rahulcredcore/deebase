@@ -568,49 +568,116 @@ print(isinstance(widget, Product))  # True
 - Generated dataclasses have Optional fields (default None) for auto-increment
 - Seamless mixing of dicts and dataclasses in all operations
 
-### Phase 5: Dynamic Access & Reflection ⬅️ CURRENT PHASE
+### Phase 5: Dynamic Access & Reflection ✅ COMPLETE
+
+**Status:** All items completed (with design modification)
 
 **Note:** ColumnAccessor was already implemented in Phase 1
 
-1. **TableAccessor implementation**
+**Design Decision:** Changed from lazy loading to explicit reflection due to async/sync mismatch. `__getattr__` is synchronous but SQLAlchemy reflection with `AsyncEngine` requires async operations.
+
+1. **✅ Database.reflect() - Explicit reflection of all tables**
+   - Async method that reflects all tables from database
+   - Uses SQLAlchemy's `metadata.reflect()` with `AsyncEngine`
+   - Wraps each reflected table in our Table class
+   - Caches all tables in `_db._tables`
+   - Skips already-cached tables (from `db.create()`)
+
+2. **✅ Database.reflect_table(name) - Single table reflection**
+   - Async method that reflects a specific table
+   - Returns cached table if already exists
+   - Uses SQLAlchemy's `Table(..., autoload_with=conn)`
+   - Wraps and caches the reflected table
+   - Makes table available via `db.t.tablename`
+
+3. **✅ TableAccessor implementation - Cache-only access**
    - `__getattr__` for attribute access (e.g., `db.t.users`)
    - `__getitem__` for index access (e.g., `db.t['users']`)
    - Multiple table access (e.g., `db.t['users', 'posts']`)
-   - Lazy loading of table instances
+   - Synchronous cache-only access (no lazy loading)
+   - Raises helpful AttributeError if table not in cache
 
-2. **SQLAlchemy table reflection**
-   - Reflect existing tables from database
-   - Build Table instances from reflected metadata
-   - Cache reflected tables
-   - Support for tables not created via db.create()
+4. **✅ Tests**
+   - Reflect tables created with raw SQL → 4 tests
+   - Access via db.t.table_name → 4 tests
+   - Access via db.t['table_name'] and multiple → 2 tests
+   - Reflect single table with reflect_table() → 3 tests
+   - Complete workflows (reflect + CRUD) → 3 tests
+   - **16 new tests, all passing**
 
-3. **Tests**
-   - Access existing tables via db.t.table_name
-   - Access via db.t['table_name']
-   - Multiple table access
-   - Reflect schema correctly from existing database
-   - Lazy loading behavior
+**Deliverables:**
+- `db.reflect()` method for reflecting all tables
+- `db.reflect_table(name)` for single table reflection
+- Cache-only TableAccessor with helpful error messages
+- Support for tables created with raw SQL
+- Seamless integration with `db.create()` (auto-cached)
+- 142 total passing tests (126 + 16 new)
 
-### Phase 6: xtra() Filtering
+**What Works Now:**
+```python
+db = Database("sqlite+aiosqlite:///myapp.db")
 
-1. **Table.xtra() implementation**
+# Tables created via db.create() are auto-cached
+users = await db.create(User, pk='id')
+users = db.t.user  # ✅ Works immediately (cache hit)
+
+# Tables created with raw SQL need explicit reflection
+await db.q("CREATE TABLE products (id INT PRIMARY KEY, name TEXT)")
+await db.reflect_table('products')  # Reflect this table
+products = db.t.products  # ✅ Now works (cache hit)
+
+# Or reflect all tables at once
+await db.q("CREATE TABLE orders (...)")
+await db.q("CREATE TABLE customers (...)")
+await db.reflect()  # Reflect everything
+orders = db.t.orders        # ✅ Works
+customers = db.t.customers  # ✅ Works
+
+# Multiple table access
+users, products = db.t['user', 'products']  # ✅ Works
+
+# CRUD operations work on reflected tables
+customer = await customers.insert({"name": "Alice"})
+all_customers = await customers()
+```
+
+**Key Design Change:**
+- **Original plan:** Lazy loading (automatic reflection in `__getattr__`)
+- **Implemented:** Explicit reflection (`await db.reflect()`)
+- **Reason:** AsyncEngine requires async reflection, `__getattr__` is sync
+- **Benefit:** Explicit, predictable, fast cache access after reflection
+
+### Phase 6: xtra() Filtering ✅ COMPLETE (Implemented Early in Phase 3)
+
+**Status:** All items completed in Phase 3
+
+**Note:** This phase was implemented early alongside CRUD operations in Phase 3.
+
+1. **✅ Table.xtra() implementation**
    - Return new Table instance with filters
    - Don't mutate original
+   - Implemented in Phase 3 (table.py:71-89)
 
-2. **Apply xtra filters to all operations**
+2. **✅ Apply xtra filters to all operations**
    - Add WHERE clauses to selects
-   - Validate on insert
+   - Auto-set values on insert
    - Filter updates/deletes
    - Raise NotFoundError on violations
+   - Applied in all CRUD methods
 
-3. **Tests**
-   - Set xtra filters
-   - Verify isolation behavior
-   - Test NotFoundError cases
+3. **✅ Tests**
+   - Set xtra filters → Tested in Phase 3
+   - Verify isolation behavior → Tested in Phase 3
+   - Test NotFoundError cases → Tested in Phase 3
+   - **Tests included in Phase 3 test suite**
 
-### Phase 7: Views and Query Enhancements
+**See Phase 3 for complete implementation and tests.**
 
-**Note:** upsert() was moved to Phase 3 as a core CRUD operation
+### Phase 7: Views Support ⬅️ CURRENT PHASE
+
+**Notes:**
+- upsert() was moved to Phase 3 ✅
+- with_pk parameter was implemented in Phase 3 ✅
 
 1. **Views support**
    - `db.create_view()` implementation
@@ -618,9 +685,9 @@ print(isinstance(widget, Product))  # True
    - Read-only View class (inherits from Table)
    - View reflection support
 
-2. **with_pk parameter**
-   - Add to `__call__()` method
-   - Return tuples of (pk_value, record) instead of just records
+2. **~~with_pk parameter~~** ✅ Already implemented in Phase 3
+   - ~~Add to `__call__()` method~~ ✅ Done
+   - ~~Return tuples of (pk_value, record)~~ ✅ Done
    - Handle composite PKs (return tuple of PK values)
    - Works with both dict and dataclass modes
 

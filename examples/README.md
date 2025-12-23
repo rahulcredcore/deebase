@@ -19,6 +19,9 @@ uv run examples/phase3_crud_operations.py
 # Run Phase 4 example (dataclass support)
 uv run examples/phase4_dataclass_support.py
 
+# Run Phase 5 example (reflection and dynamic access)
+uv run examples/phase5_reflection.py
+
 # Run complete example (combined features)
 uv run examples/complete_example.py
 ```
@@ -110,9 +113,30 @@ Demonstrates Phase 4 dataclass features:
 - Before/after `.dataclass()` behavior
 - Mixing dict and dataclass in operations
 
+### phase5_reflection.py
+
+Demonstrates Phase 5 reflection and dynamic access features:
+- Reflecting existing tables with `db.reflect()`
+- Single table reflection with `db.reflect_table()`
+- Dynamic table access via `db.t.tablename`
+- Multiple table access via `db.t['table1', 'table2']`
+- Working with existing databases
+- Mixed workflows (db.create() + raw SQL + reflection)
+- CRUD operations on reflected tables
+
+**Topics covered:**
+- `db.reflect()` - Reflect all tables from database
+- `db.reflect_table(name)` - Reflect single table
+- `db.t.tablename` - Sync cache access
+- `db.t['table']` - Index access
+- `db.t['table1', 'table2']` - Multiple tables
+- Schema preservation and inspection
+- Error messages for non-reflected tables
+- Combining db.create() and reflection
+
 ### complete_example.py
 
-A realistic workflow combining all phases (1, 2, 3, 4):
+A realistic workflow combining all phases (1-5):
 - Defines a blog database schema
 - Creates tables from Python classes
 - Populates data with CRUD operations

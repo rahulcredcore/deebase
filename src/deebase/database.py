@@ -171,6 +171,68 @@ class Database:
 
         return table_instance
 
+    async def reflect(self, schema: Optional[str] = None) -> None:
+        """Reflect all tables from the database into cache.
+
+        This scans the database and loads all existing table schemas,
+        making them available via db.t.tablename.
+
+        Args:
+            schema: Optional schema name (for databases that support schemas)
+
+        Example:
+            >>> db = Database("sqlite+aiosqlite:///myapp.db")
+            >>> await db.reflect()
+            >>> users = db.t.users  # Now works (cache hit)
+        """
+        # Create a new metadata for reflection (separate from create() metadata)
+        reflect_metadata = sa.MetaData(schema=schema)
+
+        # Reflect all tables from database
+        async with self._engine.connect() as conn:
+            await conn.run_sync(reflect_metadata.reflect)
+
+        # Wrap each reflected table and cache it
+        for table_name, sa_table in reflect_metadata.tables.items():
+            # Skip if already cached (e.g., from db.create())
+            if table_name not in self._tables:
+                # Create Table instance without dataclass (returns dicts by default)
+                table = Table(table_name, sa_table, self._engine)
+                self._cache_table(table_name, table)
+
+    async def reflect_table(self, name: str) -> Table:
+        """Reflect a specific table from the database.
+
+        Args:
+            name: Table name to reflect
+
+        Returns:
+            Table instance for the reflected table
+
+        Example:
+            >>> products = await db.reflect_table('products')
+            >>> # Now db.t.products also works
+        """
+        # Check if already cached
+        if cached := self._get_table(name):
+            return cached
+
+        # Reflect just this table
+        async with self._engine.connect() as conn:
+            # Use run_sync to reflect the table
+            def _reflect_table(sync_conn):
+                reflect_metadata = sa.MetaData()
+                sa_table = sa.Table(name, reflect_metadata, autoload_with=sync_conn)
+                return sa_table
+
+            sa_table = await conn.run_sync(_reflect_table)
+
+        # Wrap and cache
+        table = Table(name, sa_table, self._engine)
+        self._cache_table(name, table)
+
+        return table
+
     async def create_view(
         self,
         name: str,
@@ -264,16 +326,31 @@ class TableAccessor:
         self._db = db
 
     def __getattr__(self, name: str) -> Table:
-        """Access a table by attribute name.
+        """Access a table by attribute name (cache-only, synchronous).
 
         Args:
             name: Table name
 
         Returns:
-            Table instance
+            Table instance from cache
+
+        Raises:
+            AttributeError: If table not in cache
+
+        Example:
+            >>> await db.reflect()
+            >>> users = db.t.users  # Cache hit
         """
-        # TODO: Implement reflection in Phase 5
-        raise NotImplementedError("Table reflection will be implemented in Phase 5")
+        # Check cache
+        if table := self._db._get_table(name):
+            return table
+
+        # Not in cache - provide helpful error message
+        raise AttributeError(
+            f"Table '{name}' not found in cache. "
+            f"Use 'await db.reflect()' to load all tables, "
+            f"or 'await db.reflect_table(\"{name}\")' to load this specific table."
+        )
 
     def __getitem__(self, key: str | tuple[str, ...]) -> Table | tuple[Table, ...]:
         """Access table(s) by index.

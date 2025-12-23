@@ -1048,6 +1048,255 @@ for p in all_posts:
 
 ---
 
+## Phase 5: Dynamic Access & Reflection ✅ COMPLETE
+
+Phase 5 enables dynamic table access and reflection for working with existing databases:
+- ✨ Explicit table reflection with `db.reflect()`
+- ✨ Single table reflection with `db.reflect_table(name)`
+- ✨ Fast synchronous access via `db.t.tablename`
+- ✨ Multiple table access via `db.t['table1', 'table2']`
+- ✨ Full CRUD on reflected tables
+- ✨ Auto-caching from `db.create()`
+
+### Reflect All Tables
+
+```python
+from deebase import Database
+
+# Connect to existing database
+db = Database("sqlite+aiosqlite:///myapp.db")
+
+# Reflect all existing tables (one-time async operation)
+await db.reflect()
+
+# Now access tables synchronously (fast cache lookups)
+users = db.t.users
+posts = db.t.posts
+comments = db.t.comments
+
+# CRUD operations work immediately
+all_users = await users()
+user = await users[1]
+await users.insert({"name": "Alice", "email": "alice@example.com"})
+```
+
+### Reflect Single Table
+
+```python
+# Create table with raw SQL during session
+await db.q("CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL)")
+
+# Reflect just this table
+products = await db.reflect_table('products')
+
+# Now db.t.products works
+products = db.t.products  # Cache hit
+
+# CRUD operations work
+product = await products.insert({"name": "Widget", "price": 9.99})
+```
+
+### Dynamic Table Access
+
+```python
+# After reflection, access tables by attribute
+users = db.t.users        # Fast sync access
+posts = db.t.posts
+
+# Or by index
+users = db.t['users']
+posts = db.t['posts']
+
+# Multiple tables at once
+users, posts, comments = db.t['users', 'posts', 'comments']
+```
+
+### Tables Created with db.create() - Auto-Cached
+
+```python
+# Tables created via db.create() are automatically cached
+class User:
+    id: int
+    name: str
+    email: str
+
+users = await db.create(User, pk='id')
+
+# Immediately available via db.t (no reflection needed)
+users = db.t.user  # ✅ Works (cache hit from create)
+```
+
+### Working with Existing Databases
+
+```python
+# Scenario: Connect to existing database with tables
+db = Database("sqlite+aiosqlite:///existing_app.db")
+
+# Reflect all tables
+await db.reflect()
+
+# Access any table
+customers = db.t.customers
+orders = db.t.orders
+products = db.t.products
+
+# Full CRUD operations work
+customer = await customers.insert({"name": "Alice", "email": "alice@example.com"})
+all_orders = await orders()
+product = await products[1]
+found = await customers.lookup(email="alice@example.com")
+```
+
+### Mixed Workflow: db.create() + Raw SQL + Reflection
+
+```python
+db = Database("sqlite+aiosqlite:///myapp.db")
+
+# Create some tables via db.create() (auto-cached)
+class User:
+    id: int
+    name: str
+
+users_table = await db.create(User, pk='id')
+
+# Create others with raw SQL
+await db.q("CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT)")
+await db.q("CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER)")
+
+# Reflect the raw SQL tables
+await db.reflect()
+
+# Now all tables accessible
+users = db.t.user        # From db.create() (was already cached)
+products = db.t.products  # From reflection
+orders = db.t.orders      # From reflection
+
+# All support CRUD
+await users.insert({"name": "Alice"})
+await products.insert({"name": "Widget"})
+await orders.insert({"user_id": 1})
+```
+
+### Create Table During Session
+
+```python
+# Start with some reflected tables
+await db.reflect()
+users = db.t.users
+
+# Later, create a new table with raw SQL
+await db.q("CREATE TABLE temp_data (id INTEGER PRIMARY KEY, value TEXT)")
+
+# Reflect just this new table
+temp = await db.reflect_table('temp_data')
+
+# Now available via db.t
+temp = db.t.temp_data  # ✅ Works
+
+# Or re-reflect all to pick up new tables
+await db.reflect()  # Re-scans database
+```
+
+### Error Handling
+
+```python
+db = Database("sqlite+aiosqlite:///myapp.db")
+
+# Try to access table before reflection
+try:
+    users = db.t.users
+except AttributeError as e:
+    print(e)
+    # "Table 'users' not found in cache. Use 'await db.reflect()' to load all tables..."
+
+# Reflect first
+await db.reflect()
+
+# Now works
+users = db.t.users  # ✅ Cache hit
+```
+
+### Reflection Preserves Schema
+
+```python
+# Create table with specific schema
+await db.q("""
+    CREATE TABLE products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        price REAL,
+        stock INTEGER DEFAULT 0
+    )
+""")
+
+# Reflect
+await db.reflect()
+products = db.t.products
+
+# Verify schema
+print(products.schema)
+# Shows complete CREATE TABLE with all columns and constraints
+
+# Verify columns
+assert 'id' in products.sa_table.c
+assert 'name' in products.sa_table.c
+assert products.sa_table.c['id'].primary_key is True
+```
+
+### Complete Reflection Workflow
+
+```python
+from deebase import Database
+
+# Step 1: Connect to existing database
+db = Database("sqlite+aiosqlite:///production.db")
+
+# Step 2: Reflect all existing tables
+await db.reflect()
+
+# Step 3: Access tables dynamically
+customers = db.t.customers
+orders = db.t.orders
+products = db.t.products
+
+# Step 4: Enable dataclass mode for type safety
+CustomerDC = customers.dataclass()
+OrderDC = orders.dataclass()
+
+# Step 5: Use full CRUD with type safety
+customer = await customers.insert(CustomerDC(
+    id=None,
+    name="Alice",
+    email="alice@example.com"
+))
+
+# Step 6: Query and manipulate data
+all_customers = await customers()
+for c in all_customers:
+    print(c.name)  # Type-safe field access
+
+order = await orders.insert({
+    "customer_id": customer.id,
+    "total": 149.99
+})
+```
+
+### Testing
+
+- **16 new Phase 5 tests** - All passing ✅
+- **142 total tests** (Phases 1-5) - All passing ✅
+- Comprehensive coverage:
+  - Reflecting tables from raw SQL
+  - Schema preservation
+  - Cache management
+  - Single table reflection
+  - db.t.tablename access (attribute and index)
+  - Multiple table access
+  - Error handling
+  - Complete workflows (reflect + CRUD)
+
+---
+
 ## Dependencies
 
 - Python 3.14+

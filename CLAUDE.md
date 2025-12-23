@@ -29,9 +29,11 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
-✅ **Phase 3 Complete** - CRUD Operations
+✅ **Phase 3 Complete** - CRUD Operations (includes xtra() from Phase 6, with_pk from Phase 7)
 ✅ **Phase 4 Complete** - Dataclass Support
-🚧 **Phase 5 In Progress** - Dynamic Access & Reflection
+✅ **Phase 5 Complete** - Dynamic Access & Reflection
+✅ **Phase 6 Complete** - xtra() Filtering (implemented early in Phase 3)
+🚧 **Phase 7 In Progress** - Views Support
 
 **Completed:**
 - Database class with async engine and `q()` method
@@ -41,19 +43,21 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - Schema inspection and table dropping
 - Full CRUD operations (insert, update, upsert, delete, select, lookup)
 - Composite primary keys
-- xtra() filtering
+- xtra() filtering (Phase 6 - done early)
 - Error handling with NotFoundError
 - Dataclass support (`.dataclass()`, `@dataclass`, type-safe operations)
-- 125 passing tests (105 + 20 new)
+- Table reflection (`db.reflect()`, `db.reflect_table()`)
+- Dynamic table access (`db.t.tablename`, `db.t['table1', 'table2']`)
+- 142 passing tests (126 + 16 new)
 
-**Current Focus:** Next phase will add dynamic table access and reflection (db.t.users)
+**Current Focus:** Next phase will add views support (db.create_view(), db.v.viewname)
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
 
 ## Basic Usage
 
-### Working Now (Phases 1-4)
+### Working Now (Phases 1-6)
 
 ```python
 from deebase import Database, Text, NotFoundError
@@ -141,6 +145,23 @@ all_articles = await articles()
 for a in all_articles:
     print(a.title)  # Field access, not dict['key']
 
+# Reflection and dynamic access (Phase 5)
+
+# Reflect existing tables from database
+await db.reflect()
+
+# Dynamic table access (sync, fast cache lookups)
+users = db.t.users
+posts = db.t.posts
+
+# Multiple tables at once
+users, posts, comments = db.t['users', 'posts', 'comments']
+
+# Tables created with raw SQL + reflection
+await db.q("CREATE TABLE products (id INT PRIMARY KEY, name TEXT)")
+await db.reflect_table('products')  # Reflect single table
+products = db.t.products  # Now works
+
 # View schema
 print(articles.schema)
 
@@ -152,15 +173,9 @@ sa_table = articles.sa_table
 await articles.drop()
 ```
 
-### Coming in Phase 5+
+### Coming in Phase 7+
 
 ```python
-# Phase 5: Dynamic Access & Reflection
-# Access existing tables without defining classes
-users = db.t.users              # Reflect from database
-posts = db.t['posts']           # Alternative syntax
-users, posts = db.t['users', 'posts']  # Multiple tables
-
 # Phase 7: Views
 view = await db.create_view(
     "popular_posts",
@@ -234,7 +249,19 @@ src/deebase/
 - ✅ Type-safe operations with IDE autocomplete
 - ✅ 20 new tests (125 total passing)
 
-**Phase 5+:** Dynamic access & reflection, views, polish
+**Phase 5: Dynamic Access & Reflection** ✅ COMPLETE
+- ✅ `db.reflect()` - Reflect all tables from database
+- ✅ `db.reflect_table(name)` - Reflect single table
+- ✅ `db.t.tablename` - Dynamic table access (cache-only, sync)
+- ✅ `db.t['table1', 'table2']` - Multiple table access
+- ✅ Auto-caching from `db.create()`
+- ✅ Full CRUD on reflected tables
+- ✅ 16 new tests (142 total passing)
+
+**Phase 6: xtra() Filtering** ✅ COMPLETE (Implemented in Phase 3)
+- ✅ All items completed in Phase 3
+
+**Phase 7+:** Views support, polish, utilities
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 8-phase roadmap.
 See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
@@ -256,6 +283,9 @@ uv run examples/phase3_crud_operations.py
 # Phase 4: Dataclass support
 uv run examples/phase4_dataclass_support.py
 
+# Phase 5: Reflection and dynamic access
+uv run examples/phase5_reflection.py
+
 # Complete example: Blog database with full features
 uv run examples/complete_example.py
 ```
@@ -266,6 +296,7 @@ All examples use in-memory databases and demonstrate:
 - Table creation with rich types (str, Text, dict/JSON)
 - Full CRUD operations (insert, update, upsert, delete, select, lookup)
 - Dataclass support for type-safe operations
+- Table reflection and dynamic access (db.t.tablename)
 - Composite primary keys
 - xtra() filtering
 - Error handling
