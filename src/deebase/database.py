@@ -102,8 +102,74 @@ class Database:
             ...     email: str
             >>> users = await db.create(User, pk='id')
         """
-        # TODO: Implement in Phase 2
-        raise NotImplementedError("create() will be implemented in Phase 2")
+        from .dataclass_utils import extract_annotations
+        from .types import python_type_to_sqlalchemy, is_optional
+
+        # Get table name from class name (lowercase)
+        table_name = cls.__name__.lower()
+
+        # Extract type annotations from the class
+        annotations = extract_annotations(cls)
+
+        if not annotations:
+            raise ValueError(f"Class {cls.__name__} has no type annotations")
+
+        # Determine primary key(s)
+        if pk is None:
+            pk = 'id'
+
+        # Normalize pk to a list for uniform handling
+        pk_list = [pk] if isinstance(pk, str) else pk
+
+        # Verify all pk columns exist in annotations
+        for pk_col in pk_list:
+            if pk_col not in annotations:
+                raise ValueError(f"Primary key column '{pk_col}' not found in class annotations")
+
+        # Build SQLAlchemy columns
+        columns = []
+        for field_name, field_type in annotations.items():
+            # Determine if nullable
+            nullable = is_optional(field_type)
+
+            # Get SQLAlchemy type
+            sa_type = python_type_to_sqlalchemy(field_type)
+
+            # Check if this is a primary key column
+            is_pk = field_name in pk_list
+
+            # Create column (PKs are not nullable unless explicitly Optional)
+            col = sa.Column(
+                field_name,
+                sa_type,
+                primary_key=is_pk,
+                nullable=nullable and not is_pk
+            )
+            columns.append(col)
+
+        # Create SQLAlchemy Table
+        sa_table = sa.Table(
+            table_name,
+            self._metadata,
+            *columns
+        )
+
+        # Execute CREATE TABLE
+        async with self._session() as session:
+            await session.execute(sa.schema.CreateTable(sa_table))
+
+        # Create Table instance with the class as the dataclass
+        table_instance = Table(
+            table_name,
+            sa_table,
+            self._engine,
+            dataclass_cls=cls
+        )
+
+        # Cache the table
+        self._cache_table(table_name, table_instance)
+
+        return table_instance
 
     async def create_view(
         self,

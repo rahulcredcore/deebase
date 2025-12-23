@@ -321,29 +321,55 @@ class NotFoundError(Exception):
 - Added `dict` → JSON mapping for structured data
 - Fixed `q()` to handle both queries and DDL/DML statements
 
-### Phase 2: Table Creation & Schema ⬅️ CURRENT PHASE
+### Phase 2: Table Creation & Schema ✅ COMPLETE
 
-1. **db.create() implementation**
+**Status:** All items completed
+
+1. **✅ db.create() implementation**
    - Parse class annotations
    - Map to SQLAlchemy types (using enhanced type system with Text and JSON)
    - Handle primary key specification (single & composite)
    - Execute CREATE TABLE via SQLAlchemy
    - Return Table instance with dataclass support
+   - Cache created tables
 
-2. **Table class enhancements**
-   - Constructor already exists
+2. **✅ Table class enhancements**
+   - Constructor (already existed)
    - Store sa_table reference (done)
    - Expose `schema` property (compile CREATE TABLE SQL)
    - Implement `drop()` method to drop tables
 
-3. **Tests**
+3. **✅ Tests**
    - Create tables from simple classes
    - Verify schema generation with Text and JSON types
    - Test primary key specification (single & composite)
    - Test Optional fields become nullable columns
    - Test table drop functionality
+   - **16 new tests, all passing**
 
-### Phase 3: Basic CRUD Without Dataclasses
+**Deliverables:**
+- Fully functional table creation from Python classes
+- Rich type support (str, Text, dict/JSON, datetime, Optional)
+- Schema generation and inspection
+- Table dropping
+- 78 total passing tests (62 + 16 new)
+- Documentation: implemented.md with usage examples
+
+**What Works Now:**
+```python
+class Article:
+    id: int
+    title: str
+    content: Text
+    metadata: dict
+    created_at: datetime
+
+articles = await db.create(Article, pk='id')
+print(articles.schema)  # View CREATE TABLE SQL
+await articles.drop()   # Drop table
+```
+
+### Phase 3: Basic CRUD Without Dataclasses ⬅️ CURRENT PHASE
 
 1. **Table.insert() returning dicts**
    - Accept dict input

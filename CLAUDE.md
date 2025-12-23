@@ -28,39 +28,61 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ## Project Status
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
-🚧 **Phase 2 In Progress** - Table Creation & Schema
+✅ **Phase 2 Complete** - Table Creation & Schema
+🚧 **Phase 3 In Progress** - CRUD Operations
 
 **Completed:**
 - Database class with async engine and `q()` method
 - Enhanced type system (Text, JSON, all basic types)
 - Complete dataclass utilities
-- 62 passing tests
+- Table creation from Python classes with `db.create()`
+- Schema inspection and table dropping
+- 78 passing tests (62 + 16 new)
 
-**Current Focus:** Implementing `db.create()` for table creation from Python classes
+**Current Focus:** Implementing CRUD operations (insert, update, upsert, delete, select, lookup)
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
+See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
 
 ## Basic Usage
 
-### Working Now (Phase 1)
+### Working Now (Phases 1 & 2)
 
 ```python
-from deebase import Database
+from deebase import Database, Text
+from datetime import datetime
 
 # Create database connection
 db = Database("sqlite+aiosqlite:///myapp.db")
 
-# Raw SQL queries (fully working)
+# Raw SQL queries (Phase 1)
 await db.q("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
 await db.q("INSERT INTO users (name) VALUES ('Alice')")
 results = await db.q("SELECT * FROM users")
 # Returns: [{'id': 1, 'name': 'Alice'}]
 
-# Access underlying SQLAlchemy engine
+# Create tables from Python classes (Phase 2)
+class Article:
+    id: int
+    title: str              # VARCHAR
+    content: Text           # TEXT (unlimited)
+    metadata: dict          # JSON column
+    created_at: datetime    # TIMESTAMP
+
+articles = await db.create(Article, pk='id')
+
+# View schema
+print(articles.schema)
+
+# Access underlying SQLAlchemy
 engine = db.engine
+sa_table = articles.sa_table
+
+# Drop table
+await articles.drop()
 ```
 
-### Coming in Phase 2
+### Coming in Phase 3
 
 ```python
 from deebase import Database, Text
@@ -143,14 +165,25 @@ src/deebase/
 - ✅ Complete dataclass utilities
 - ✅ Test infrastructure (62 passing tests)
 
-**Phase 2: Table Creation & Schema** 🚧 IN PROGRESS
-- [ ] `db.create()` implementation
-- [ ] Table schema property
-- [ ] Tests for table creation
+**Phase 2: Table Creation & Schema** ✅ COMPLETE
+- ✅ `db.create()` implementation
+- ✅ Table schema property
+- ✅ Table.drop() method
+- ✅ 16 new tests (78 total passing)
 
-**Phase 3+:** CRUD operations, dataclass support, filtering, views, polish
+**Phase 3: CRUD Operations** 🚧 IN PROGRESS
+- [ ] `table.insert()` - Insert records
+- [ ] `table.update()` - Update records
+- [ ] `table.upsert()` - Insert or update
+- [ ] `table.delete()` - Delete records
+- [ ] `table()` - Select all/limited records
+- [ ] `table[pk]` - Get by primary key
+- [ ] `table.lookup()` - Query with WHERE conditions
+
+**Phase 4+:** Dataclass support, reflection, filtering, views, polish
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 8-phase roadmap.
+See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
 
 ## Contributing
 

@@ -188,8 +188,24 @@ class Table:
 
     async def drop(self) -> None:
         """Drop the table from the database."""
-        # TODO: Implement in Phase 2
-        raise NotImplementedError("drop() will be implemented in Phase 2")
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy.orm import sessionmaker
+
+        # Create session factory
+        session_factory = sessionmaker(
+            self._engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+
+        # Execute DROP TABLE
+        async with session_factory() as session:
+            try:
+                await session.execute(sa.schema.DropTable(self._sa_table))
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
 
     async def transform(self, **kwargs) -> None:
         """Transform the table structure.
