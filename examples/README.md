@@ -22,6 +22,9 @@ uv run examples/phase4_dataclass_support.py
 # Run Phase 5 example (reflection and dynamic access)
 uv run examples/phase5_reflection.py
 
+# Run Phase 7 example (views support)
+uv run examples/phase7_views.py
+
 # Run complete example (combined features)
 uv run examples/complete_example.py
 ```
@@ -134,9 +137,30 @@ Demonstrates Phase 5 reflection and dynamic access features:
 - Error messages for non-reflected tables
 - Combining db.create() and reflection
 
+### phase7_views.py
+
+Demonstrates Phase 7 view support features:
+- Creating views with `db.create_view()`
+- Querying views (read-only SELECT, GET, LOOKUP)
+- Dynamic view access via `db.v.viewname`
+- View reflection with `db.reflect_view()`
+- Views with JOIN and aggregation
+- Read-only enforcement (blocks INSERT/UPDATE/DELETE)
+- Views with dataclass support
+- Dropping views
+
+**Topics covered:**
+- `db.create_view(name, sql, replace)` - Create database views
+- `db.reflect_view(name)` - Reflect existing views
+- `db.v.viewname` - Sync cache access to views
+- `db.v['view1', 'view2']` - Multiple view access
+- Read-only operations on views
+- `view.drop()` - Drop views
+- Views with `.dataclass()` support
+
 ### complete_example.py
 
-A realistic workflow combining all phases (1-5):
+A realistic workflow combining all phases (1-7):
 - Defines a blog database schema
 - Creates tables from Python classes
 - Populates data with CRUD operations

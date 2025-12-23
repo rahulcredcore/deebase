@@ -27,5 +27,22 @@ class View(Table):
 
     async def drop(self):
         """Drop the view from the database."""
-        # TODO: Implement in Phase 7
-        raise NotImplementedError("drop() will be implemented in Phase 7")
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy.orm import sessionmaker
+        import sqlalchemy as sa
+
+        # Create session factory
+        session_factory = sessionmaker(
+            self._engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+
+        # Execute DROP VIEW
+        async with session_factory() as session:
+            try:
+                await session.execute(sa.text(f"DROP VIEW {self._name}"))
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise

@@ -510,6 +510,10 @@ class Table:
         # Get primary key columns
         pk_cols = list(self._sa_table.primary_key.columns)
 
+        # If no PK (e.g., views), use first column as pseudo-key
+        if not pk_cols:
+            pk_cols = [list(self._sa_table.columns)[0]]
+
         # Normalize pk_value to a tuple
         if len(pk_cols) == 1:
             pk_values = (pk_value,)

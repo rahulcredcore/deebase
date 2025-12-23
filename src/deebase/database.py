@@ -248,9 +248,76 @@ class Database:
 
         Returns:
             View instance for the created view
+
+        Example:
+            >>> view = await db.create_view(
+            ...     "active_users",
+            ...     "SELECT * FROM users WHERE active = 1"
+            ... )
         """
-        # TODO: Implement in Phase 7
-        raise NotImplementedError("create_view() will be implemented in Phase 7")
+        # Drop existing view if replace=True
+        if replace:
+            async with self._session() as session:
+                try:
+                    await session.execute(sa.text(f"DROP VIEW IF EXISTS {name}"))
+                except Exception:
+                    pass  # View might not exist
+
+        # Create the view
+        create_sql = f"CREATE VIEW {name} AS {sql}"
+        async with self._session() as session:
+            await session.execute(sa.text(create_sql))
+
+        # Reflect the view to get its structure
+        async with self._engine.connect() as conn:
+            def _reflect_view(sync_conn):
+                reflect_metadata = sa.MetaData()
+                sa_table = sa.Table(name, reflect_metadata, autoload_with=sync_conn)
+                return sa_table
+
+            sa_table = await conn.run_sync(_reflect_view)
+
+        # Create View instance
+        view = View(name, sa_table, self._engine)
+
+        # Cache the view
+        self._views[name] = view
+
+        return view
+
+    async def reflect_view(self, name: str) -> View:
+        """Reflect an existing view from the database.
+
+        Args:
+            name: View name to reflect
+
+        Returns:
+            View instance for the reflected view
+
+        Example:
+            >>> view = await db.reflect_view('active_users')
+            >>> # Now db.v.active_users also works
+        """
+        # Check if already cached
+        if cached := self._views.get(name):
+            return cached
+
+        # Reflect the view
+        async with self._engine.connect() as conn:
+            def _reflect_view(sync_conn):
+                reflect_metadata = sa.MetaData()
+                sa_table = sa.Table(name, reflect_metadata, autoload_with=sync_conn)
+                return sa_table
+
+            sa_table = await conn.run_sync(_reflect_view)
+
+        # Create View instance
+        view = View(name, sa_table, self._engine)
+
+        # Cache the view
+        self._views[name] = view
+
+        return view
 
     async def import_file(
         self,
@@ -381,16 +448,31 @@ class ViewAccessor:
         self._db = db
 
     def __getattr__(self, name: str) -> View:
-        """Access a view by attribute name.
+        """Access a view by attribute name (cache-only, synchronous).
 
         Args:
             name: View name
 
         Returns:
-            View instance
+            View instance from cache
+
+        Raises:
+            AttributeError: If view not in cache
+
+        Example:
+            >>> await db.create_view("active_users", "SELECT * FROM users WHERE active = 1")
+            >>> view = db.v.active_users  # Cache hit
         """
-        # TODO: Implement view reflection in Phase 7
-        raise NotImplementedError("View reflection will be implemented in Phase 7")
+        # Check cache
+        if view := self._db._views.get(name):
+            return view
+
+        # Not in cache - provide helpful error message
+        raise AttributeError(
+            f"View '{name}' not found in cache. "
+            f"Use 'await db.create_view(\"{name}\", sql)' to create it, "
+            f"or 'await db.reflect_view(\"{name}\")' to load an existing view."
+        )
 
     def __getitem__(self, key: str | tuple[str, ...]) -> View | tuple[View, ...]:
         """Access view(s) by index.

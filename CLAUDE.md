@@ -33,7 +33,8 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 4 Complete** - Dataclass Support
 ✅ **Phase 5 Complete** - Dynamic Access & Reflection
 ✅ **Phase 6 Complete** - xtra() Filtering (implemented early in Phase 3)
-🚧 **Phase 7 In Progress** - Views Support
+✅ **Phase 7 Complete** - Views Support
+🚧 **Phase 8 In Progress** - Polish & Utilities
 
 **Completed:**
 - Database class with async engine and `q()` method
@@ -48,9 +49,10 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - Dataclass support (`.dataclass()`, `@dataclass`, type-safe operations)
 - Table reflection (`db.reflect()`, `db.reflect_table()`)
 - Dynamic table access (`db.t.tablename`, `db.t['table1', 'table2']`)
-- 142 passing tests (126 + 16 new)
+- Views support (`db.create_view()`, `db.v.viewname`, read-only operations)
+- 161 passing tests (142 + 19 new)
 
-**Current Focus:** Next phase will add views support (db.create_view(), db.v.viewname)
+**Current Focus:** Phase 8 will add polish, utilities, and final enhancements
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
@@ -261,7 +263,17 @@ src/deebase/
 **Phase 6: xtra() Filtering** ✅ COMPLETE (Implemented in Phase 3)
 - ✅ All items completed in Phase 3
 
-**Phase 7+:** Views support, polish, utilities
+**Phase 7: Views Support** ✅ COMPLETE
+- ✅ `db.create_view(name, sql, replace)` - Create database views
+- ✅ `db.reflect_view(name)` - Reflect existing views
+- ✅ `db.v.viewname` - Dynamic view access (cache-only, sync)
+- ✅ Read-only operations (SELECT, GET, LOOKUP)
+- ✅ Write operations blocked (INSERT, UPDATE, DELETE)
+- ✅ View.drop() - Drop views
+- ✅ Dataclass support for views
+- ✅ 19 new tests (161 total passing)
+
+**Phase 8:** Polish & utilities (final phase)
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 8-phase roadmap.
 See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
@@ -285,6 +297,9 @@ uv run examples/phase4_dataclass_support.py
 
 # Phase 5: Reflection and dynamic access
 uv run examples/phase5_reflection.py
+
+# Phase 7: Views support
+uv run examples/phase7_views.py
 
 # Complete example: Blog database with full features
 uv run examples/complete_example.py
