@@ -1386,16 +1386,600 @@ users = await db.create(User, pk='id')
 
 ---
 
+## 11. Reflection & Dynamic Access (Phase 5)
+
+Phase 5 enables working with existing databases by reflecting table metadata and providing dynamic table access.
+
+### The Async/Sync Challenge
+
+**Original Design Goal:** Lazy loading via `db.t.tablename`
+```python
+# Desired: lazy table loading on first access
+users = db.t.users  # Would auto-reflect the users table
+```
+
+**The Problem:** Python's `__getattr__` is synchronous, but SQLAlchemy's reflection with `AsyncEngine` requires async operations.
+
+**Solution:** Explicit reflection + fast synchronous cache access.
+
+### Database.reflect() - Reflect All Tables
+
+**What it does:**
+Async method that discovers and loads all tables from the database into the cache.
+
+**Implementation:**
+```python
+async def reflect(self):
+    """Reflect all tables from database."""
+    # Use SQLAlchemy's reflect() to discover tables
+    async with self._engine.begin() as conn:
+        await conn.run_sync(self._metadata.reflect)
+
+    # Wrap each reflected table in our Table class
+    for table_name, sa_table in self._metadata.tables.items():
+        if table_name not in self._tables:  # Skip already cached
+            table = Table(table_name, sa_table, self._engine)
+            self._tables[table_name] = table
+```
+
+**How SQLAlchemy Reflection Works:**
+
+1. **Metadata.reflect()** inspects the database schema
+2. Queries `information_schema` (PostgreSQL) or `sqlite_master` (SQLite)
+3. Creates `sa.Table` objects with columns, types, constraints
+4. Registers tables in the `MetaData` object
+5. Preserves full schema including primary keys, nullable columns, etc.
+
+**Example:**
+```python
+# Database already has tables from previous sessions
+db = Database("sqlite+aiosqlite:///myapp.db")
+
+# Reflect all tables (one-time async operation)
+await db.reflect()
+
+# Now access is synchronous and fast (cache lookups)
+users = db.t.users      # Cache hit - no database query
+posts = db.t.posts      # Cache hit - no database query
+```
+
+### Database.reflect_table() - Single Table Reflection
+
+**What it does:**
+Async method that reflects a specific table by name.
+
+**Implementation:**
+```python
+async def reflect_table(self, name: str) -> Table:
+    """Reflect a single table from the database."""
+    # Check cache first
+    if name in self._tables:
+        return self._tables[name]
+
+    # Reflect the specific table
+    async with self._engine.begin() as conn:
+        sa_table = await conn.run_sync(
+            lambda sync_conn: sa.Table(
+                name,
+                self._metadata,
+                autoload_with=sync_conn
+            )
+        )
+
+    # Wrap and cache
+    table = Table(name, sa_table, self._engine)
+    self._tables[name] = table
+    return table
+```
+
+**Use case:** When you create a table with raw SQL during a session:
+```python
+# Create table with raw SQL
+await db.q("CREATE TABLE products (id INT PRIMARY KEY, name TEXT)")
+
+# Reflect just this table
+products = await db.reflect_table('products')
+
+# Now accessible via db.t
+products = db.t.products  # Cache hit
+```
+
+### TableAccessor - Cache-Only Dynamic Access
+
+**What it does:**
+Provides `db.t.tablename` syntax for accessing cached tables (synchronous).
+
+**Implementation:**
+```python
+class TableAccessor:
+    def __init__(self, db: Database):
+        self._db = db
+
+    def __getattr__(self, name: str) -> Table:
+        """Access table by attribute: db.t.users"""
+        if name in self._db._tables:
+            return self._db._tables[name]
+
+        # Helpful error message
+        raise AttributeError(
+            f"Table '{name}' not found in cache. "
+            f"Use 'await db.reflect()' to load all tables, "
+            f"or 'await db.reflect_table(\"{name}\")' to load this table."
+        )
+
+    def __getitem__(self, key):
+        """Access table(s) by index: db.t['users'] or db.t['users', 'posts']"""
+        if isinstance(key, str):
+            return self.__getattr__(key)
+
+        # Multiple tables: db.t['users', 'posts']
+        if isinstance(key, tuple):
+            return tuple(self.__getattr__(name) for name in key)
+```
+
+**Why Cache-Only?**
+- ✅ Synchronous access (no await needed)
+- ✅ Fast (dictionary lookup)
+- ✅ Explicit control (you decide when to reflect)
+- ✅ Predictable (no hidden database queries)
+- ✅ Clear error messages guide users
+
+**Usage patterns:**
+```python
+# Pattern 1: Reflect all, then access
+await db.reflect()
+users = db.t.users        # Sync, fast
+posts = db.t.posts        # Sync, fast
+
+# Pattern 2: Reflect specific table
+await db.reflect_table('products')
+products = db.t.products  # Sync, fast
+
+# Pattern 3: Created with db.create() (auto-cached)
+users = await db.create(User, pk='id')
+users = db.t.user         # Works immediately (was cached by create)
+
+# Pattern 4: Multiple table access
+users, posts = db.t['user', 'post']
+```
+
+### Auto-Caching from db.create()
+
+**When you create a table via `db.create()`:**
+```python
+users = await db.create(User, pk='id')
+```
+
+**This automatically:**
+1. Creates the SQLAlchemy Table object
+2. Executes CREATE TABLE
+3. Wraps in our Table class
+4. **Caches in `_tables`** ← Key point!
+
+**Result:** Immediate access via `db.t`
+```python
+# No reflection needed - was cached by create()
+users = db.t.user  # ✅ Works immediately
+```
+
+### Reflection Preserves Full Schema
+
+**When reflecting existing tables:**
+```python
+await db.q("""
+    CREATE TABLE products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        price REAL DEFAULT 0.0,
+        stock INTEGER DEFAULT 0
+    )
+""")
+
+await db.reflect_table('products')
+products = db.t.products
+
+# Full schema preserved
+print(products.schema)
+# Shows complete CREATE TABLE with all constraints
+
+# Column metadata available
+assert products.sa_table.c['id'].primary_key is True
+assert products.sa_table.c['name'].nullable is False
+assert products.sa_table.c['price'].default is not None
+```
+
+### Complete Workflow Examples
+
+**Working with existing database:**
+```python
+# Connect to existing database
+db = Database("sqlite+aiosqlite:///production.db")
+
+# Reflect all existing tables
+await db.reflect()
+
+# Access tables dynamically
+customers = db.t.customers
+orders = db.t.orders
+products = db.t.products
+
+# Full CRUD available
+customer = await customers.insert({"name": "Alice"})
+all_orders = await orders()
+product = await products[1]
+```
+
+**Mixed workflow (db.create + raw SQL):**
+```python
+# Create some tables via db.create() (auto-cached)
+class User:
+    id: int
+    name: str
+
+users = await db.create(User, pk='id')
+
+# Create others with raw SQL
+await db.q("CREATE TABLE logs (id INT PRIMARY KEY, message TEXT)")
+await db.q("CREATE TABLE sessions (id INT PRIMARY KEY, user_id INT)")
+
+# Reflect the raw SQL tables
+await db.reflect()
+
+# All accessible now
+users = db.t.user       # Was cached by create()
+logs = db.t.logs        # Loaded by reflect()
+sessions = db.t.sessions  # Loaded by reflect()
+```
+
+### Why This Design?
+
+**Advantages:**
+1. **Clear separation**: Async operations (reflect) vs sync access (db.t)
+2. **Performance**: Cache lookups are instant
+3. **Explicit**: No hidden database queries
+4. **Helpful**: Error messages guide users to reflect
+5. **Flexible**: Reflect all at once or one at a time
+
+**Trade-offs:**
+- Requires explicit reflection (can't auto-load on first access)
+- User must call `await db.reflect()` or `await db.reflect_table(name)`
+
+---
+
+## 12. Views Support (Phase 7)
+
+Phase 7 adds database views for read-only access to derived data. Views are essentially saved queries that appear as virtual tables.
+
+### Database.create_view() - Create Views
+
+**What it does:**
+Creates a database view from a SQL SELECT statement.
+
+**Implementation:**
+```python
+async def create_view(
+    self,
+    name: str,
+    sql: str,
+    replace: bool = False
+) -> View:
+    """Create a database view."""
+    # Drop existing view if replace=True
+    if replace:
+        async with self._session() as session:
+            try:
+                await session.execute(sa.text(f"DROP VIEW IF EXISTS {name}"))
+            except Exception:
+                pass  # View might not exist
+
+    # Create view with raw SQL
+    create_sql = f"CREATE VIEW {name} AS {sql}"
+    async with self._session() as session:
+        await session.execute(sa.text(create_sql))
+
+    # Reflect to get metadata
+    view = await self.reflect_view(name)
+    return view
+```
+
+**Usage:**
+```python
+# Create view from SELECT
+active_users = await db.create_view(
+    "active_users",
+    "SELECT * FROM user WHERE active = 1"
+)
+
+# Replace existing view
+active_users = await db.create_view(
+    "active_users",
+    "SELECT id, name FROM user WHERE active = 1",
+    replace=True
+)
+```
+
+### Database.reflect_view() - Reflect Existing Views
+
+**What it does:**
+Reflects an existing view's metadata from the database.
+
+**Implementation:**
+```python
+async def reflect_view(self, name: str) -> View:
+    """Reflect a view from the database."""
+    # Check cache
+    if name in self._views:
+        return self._views[name]
+
+    # Reflect view metadata
+    async with self._engine.begin() as conn:
+        sa_table = await conn.run_sync(
+            lambda sync_conn: sa.Table(
+                name,
+                self._metadata,
+                autoload_with=sync_conn
+            )
+        )
+
+    # Wrap as View (read-only)
+    view = View(name, sa_table, self._engine)
+    self._views[name] = view
+    return view
+```
+
+### View Class - Read-Only Table Wrapper
+
+**Design:**
+Views inherit from Table but block write operations.
+
+**Implementation:**
+```python
+class View(Table):
+    """Read-only view wrapper (inherits from Table)."""
+
+    # Read operations inherited (work as-is):
+    # - __call__(limit, with_pk)
+    # - __getitem__(pk)
+    # - lookup(**kwargs)
+    # - dataclass()
+
+    # Block write operations:
+    async def insert(self, record):
+        raise NotImplementedError("Cannot insert into a view")
+
+    async def update(self, record):
+        raise NotImplementedError("Cannot update a view")
+
+    async def upsert(self, record):
+        raise NotImplementedError("Cannot upsert into a view")
+
+    async def delete(self, pk):
+        raise NotImplementedError("Cannot delete from a view")
+
+    # Override xtra() to return View, not Table
+    def xtra(self, **filters):
+        return View(
+            self._name,
+            self._sa_table,
+            self._engine,
+            self._dataclass_cls,
+            {**self._xtra_filters, **filters}
+        )
+```
+
+### ViewAccessor - Dynamic View Access
+
+**Similar to TableAccessor but for views:**
+
+```python
+class ViewAccessor:
+    def __init__(self, db: Database):
+        self._db = db
+
+    def __getattr__(self, name: str) -> View:
+        """Access view: db.v.active_users"""
+        if name in self._db._views:
+            return self._db._views[name]
+
+        raise AttributeError(
+            f"View '{name}' not found in cache. "
+            f"Use 'await db.create_view()' or 'await db.reflect_view()'."
+        )
+
+    def __getitem__(self, key):
+        """Access view(s): db.v['active_users'] or db.v['view1', 'view2']"""
+        if isinstance(key, str):
+            return self.__getattr__(key)
+        if isinstance(key, tuple):
+            return tuple(self.__getattr__(name) for name in key)
+```
+
+**Usage:**
+```python
+# After creating or reflecting view
+active_users = await db.create_view("active_users", "SELECT ...")
+
+# Access via db.v
+view = db.v.active_users  # Sync cache access
+```
+
+### View Operations
+
+**Read operations work normally:**
+```python
+view = await db.create_view("user_view", "SELECT * FROM user")
+
+# SELECT all
+all_users = await view()
+
+# SELECT with limit
+limited = await view(limit=10)
+
+# GET by first column (pseudo-PK)
+user = await view[1]  # Uses first column as key
+
+# LOOKUP with WHERE
+found = await view.lookup(email="alice@example.com")
+
+# with_pk parameter
+results = await view(with_pk=True)
+for pk, record in results:
+    print(f"PK={pk}: {record}")
+
+# Dataclass support
+UserViewDC = view.dataclass()
+users = await view()  # Returns dataclass instances
+```
+
+**Write operations blocked:**
+```python
+# All raise NotImplementedError
+await view.insert({"name": "Alice"})    # ✗ Blocked
+await view.update({"id": 1, ...})       # ✗ Blocked
+await view.delete(1)                    # ✗ Blocked
+await view.upsert({"id": 1, ...})       # ✗ Blocked
+```
+
+### Views with JOIN and Aggregation
+
+**Complex view example:**
+```python
+# Tables
+users = await db.create(User, pk='id')
+posts = await db.create(Post, pk='id')
+
+# View with JOIN
+posts_with_authors = await db.create_view(
+    "posts_with_authors",
+    """
+    SELECT
+        p.id,
+        p.title,
+        p.views,
+        u.name as author_name,
+        u.email as author_email
+    FROM post p
+    JOIN user u ON p.user_id = u.id
+    """
+)
+
+# Query the derived data
+results = await posts_with_authors()
+for row in results:
+    print(f"{row['title']} by {row['author_name']}")
+
+# Dataclass for type-safe access
+PostAuthorDC = posts_with_authors.dataclass()
+results = await posts_with_authors()
+for post in results:
+    print(f"{post.title} by {post.author_name}")
+```
+
+### View Lifecycle
+
+**Create → Query → Drop:**
+```python
+# Create view
+view = await db.create_view(
+    "temp_view",
+    "SELECT * FROM users WHERE created_at > DATE('now', '-7 days')"
+)
+
+# Use view
+recent_users = await view()
+
+# Drop view
+await view.drop()
+
+# View is gone, can create again
+view = await db.create_view("temp_view", "SELECT ...")
+```
+
+### How Views Work Under the Hood
+
+**Database views are virtual tables:**
+1. Store only the SQL query, not the data
+2. Execute query each time accessed
+3. Reflect as tables (have columns, but no INSERT/UPDATE support)
+4. Useful for:
+   - Complex joins
+   - Filtered data subsets
+   - Aggregated data
+   - Hiding complexity
+
+**DeeBase View Strategy:**
+1. Use SQLAlchemy's reflection to load view metadata
+2. Wrap as View (inherits from Table)
+3. Block write operations at the DeeBase level
+4. All read operations work identically to tables
+
+### Complete Views Example
+
+```python
+# Setup tables
+class User:
+    id: int
+    name: str
+    status: str
+
+class Order:
+    id: int
+    user_id: int
+    total: float
+    status: str
+
+users = await db.create(User, pk='id')
+orders = await db.create(Order, pk='id')
+
+# Insert data
+await users.insert({"name": "Alice", "status": "active"})
+await orders.insert({"user_id": 1, "total": 99.99, "status": "completed"})
+
+# Create views
+active_users = await db.create_view(
+    "active_users",
+    "SELECT * FROM user WHERE status = 'active'"
+)
+
+completed_orders = await db.create_view(
+    "completed_orders",
+    "SELECT * FROM 'order' WHERE status = 'completed'"
+)
+
+user_orders = await db.create_view(
+    "user_orders",
+    """
+    SELECT u.name, o.total, o.status
+    FROM 'order' o
+    JOIN user u ON o.user_id = u.id
+    """
+)
+
+# Query views
+active = await active_users()
+completed = await completed_orders()
+user_order_data = await user_orders()
+
+# Access via db.v
+view = db.v.active_users
+results = await view()
+```
+
+---
+
 ## Key Takeaways
 
 1. **SQLAlchemy Core, Not ORM**: We use Tables and Columns directly, not ORM models
 2. **Async Throughout**: AsyncEngine, AsyncSession, async operations
 3. **Type Safety**: Python types → SQLAlchemy types → Database SQL
 4. **Dialect Agnostic**: Same code works for SQLite and PostgreSQL via dialects
-5. **Wrapper Pattern**: We wrap SQLAlchemy objects (Table, Column) with our own classes
+5. **Wrapper Pattern**: We wrap SQLAlchemy objects (Table, Column, View) with our own classes
 6. **Metadata Registry**: MetaData tracks all table definitions
 7. **Session Per Operation**: Each operation gets its own session with auto-commit
 8. **Compile for SQL**: Use `.compile(engine)` to generate database-specific SQL
+9. **Explicit Reflection**: Tables/views must be explicitly reflected before dynamic access
+10. **Read-Only Views**: Views inherit from Table but block write operations
+11. **Opt-In Type Safety**: Start with dicts, add dataclasses when needed
 
 ## Further Reading
 
@@ -1403,3 +1987,4 @@ users = await db.create(User, pk='id')
 - [SQLAlchemy Async Documentation](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html)
 - [SQLAlchemy Type System](https://docs.sqlalchemy.org/en/20/core/types.html)
 - [SQLAlchemy Dialects](https://docs.sqlalchemy.org/en/20/dialects/)
+- [SQLAlchemy Reflection](https://docs.sqlalchemy.org/en/20/core/reflection.html)

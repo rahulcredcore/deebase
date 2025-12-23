@@ -59,7 +59,7 @@ See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples 
 
 ## Basic Usage
 
-### Working Now (Phases 1-6)
+### Working Now (Phases 1-7)
 
 ```python
 from deebase import Database, Text, NotFoundError
@@ -173,17 +173,27 @@ sa_table = articles.sa_table
 
 # Drop table
 await articles.drop()
-```
 
-### Coming in Phase 7+
+# Views support (Phase 7)
 
-```python
-# Phase 7: Views
+# Create view from SELECT query
 view = await db.create_view(
     "popular_posts",
     "SELECT * FROM posts WHERE views > 1000"
 )
 popular = await view()  # Read-only access
+
+# Dynamic view access (sync, fast cache lookups)
+view = db.v.popular_posts
+
+# Views support all read operations
+post = await view[1]
+found = await view.lookup(title="...")
+limited = await view(limit=10)
+
+# Dataclass support for views
+PostViewDC = view.dataclass()
+results = await view()  # Returns dataclass instances
 ```
 
 ## Architecture
@@ -205,7 +215,7 @@ src/deebase/
 - **Pure SQLAlchemy Core** - No ORM, just Core APIs for simplicity and control
 - **Async session per operation** - Each operation creates a short-lived async session
 - **Metadata caching** - Table metadata cached and reused
-- **Lazy reflection** - Tables reflected from database on first access
+- **Explicit reflection** - Tables reflected from database with `db.reflect()` or `db.reflect_table()`
 - **Context-dependent returns** - Methods return dicts or dataclasses based on configuration
 
 ## Differences from fastlite
