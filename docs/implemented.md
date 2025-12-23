@@ -364,6 +364,398 @@ await temp.drop()
 
 ---
 
+## Phase 3: CRUD Operations ✅ COMPLETE
+
+Phase 3 implements all CRUD (Create, Read, Update, Delete) operations with full support for:
+- ✨ Insert records with auto-generated PKs
+- ✨ Select all/limited records
+- ✨ Get records by primary key
+- ✨ Lookup records by WHERE conditions
+- ✨ Update existing records
+- ✨ Delete records
+- ✨ Upsert (insert or update)
+- ✨ Composite primary keys
+- ✨ Rich types (Text, JSON, datetime)
+- ✨ xtra() filtering
+- ✨ Error handling with NotFoundError
+
+### Insert Records
+
+```python
+from deebase import Database
+
+db = Database("sqlite+aiosqlite:///myapp.db")
+
+class User:
+    id: int
+    name: str
+    email: str
+    age: int
+
+users = await db.create(User, pk='id')
+
+# Insert a record (returns inserted record with auto-generated ID)
+user = await users.insert({
+    "name": "Alice",
+    "email": "alice@example.com",
+    "age": 30
+})
+print(user)
+# {'id': 1, 'name': 'Alice', 'email': 'alice@example.com', 'age': 30}
+
+# Insert multiple records
+user2 = await users.insert({"name": "Bob", "email": "bob@example.com", "age": 25})
+user3 = await users.insert({"name": "Charlie", "email": "charlie@example.com", "age": 35})
+```
+
+### Select Records
+
+```python
+# Select all records
+all_users = await users()
+# Returns: [{'id': 1, ...}, {'id': 2, ...}, {'id': 3, ...}]
+
+# Select with limit
+recent_users = await users(limit=2)
+# Returns: [{'id': 1, ...}, {'id': 2, ...}]
+
+# Select with primary key values (with_pk=True)
+results = await users(with_pk=True)
+# Returns: [(1, {'id': 1, ...}), (2, {'id': 2, ...}), ...]
+for pk, record in results:
+    print(f"PK={pk}: {record['name']}")
+```
+
+### Get by Primary Key
+
+```python
+# Get single record by PK
+user = await users[1]
+print(user)
+# {'id': 1, 'name': 'Alice', 'email': 'alice@example.com', 'age': 30}
+
+# NotFoundError if not found
+from deebase import NotFoundError
+
+try:
+    missing = await users[999]
+except NotFoundError:
+    print("User not found")
+```
+
+### Lookup by Conditions
+
+```python
+# Find single record by column value(s)
+user = await users.lookup(email="alice@example.com")
+print(user['name'])  # 'Alice'
+
+# Multiple conditions
+user = await users.lookup(name="Bob", age=25)
+
+# NotFoundError if not found
+try:
+    user = await users.lookup(email="nonexistent@example.com")
+except NotFoundError:
+    print("No matching user")
+```
+
+### Update Records
+
+```python
+# Update a record (must include PK)
+updated = await users.update({
+    "id": 1,
+    "name": "Alice Smith",
+    "email": "alice.smith@example.com",
+    "age": 31
+})
+print(updated)
+# {'id': 1, 'name': 'Alice Smith', 'email': 'alice.smith@example.com', 'age': 31}
+
+# Can also fetch, modify, and update
+user = await users[1]
+user['age'] += 1
+updated = await users.update(user)
+
+# NotFoundError if PK doesn't exist
+try:
+    await users.update({"id": 999, "name": "Ghost", "email": "ghost@example.com", "age": 0})
+except NotFoundError:
+    print("User not found")
+```
+
+### Delete Records
+
+```python
+# Delete by primary key
+await users.delete(1)
+
+# Record is now gone
+try:
+    await users[1]
+except NotFoundError:
+    print("User was deleted")
+
+# NotFoundError if already deleted
+try:
+    await users.delete(1)
+except NotFoundError:
+    print("User already deleted")
+```
+
+### Upsert (Insert or Update)
+
+```python
+class Product:
+    id: int
+    name: str
+    price: float
+    stock: int
+
+products = await db.create(Product, pk='id')
+
+# Upsert without ID → inserts new record
+product = await products.upsert({
+    "name": "Widget",
+    "price": 9.99,
+    "stock": 100
+})
+print(product['id'])  # 1 (auto-generated)
+
+# Upsert with existing ID → updates record
+updated = await products.upsert({
+    "id": 1,
+    "name": "Super Widget",
+    "price": 14.99,
+    "stock": 150
+})
+print(updated)
+# {'id': 1, 'name': 'Super Widget', 'price': 14.99, 'stock': 150}
+
+# Only one record exists
+all_products = await products()
+print(len(all_products))  # 1
+```
+
+### Composite Primary Keys
+
+```python
+class OrderItem:
+    order_id: int
+    item_id: int
+    quantity: int
+    price: float
+
+order_items = await db.create(OrderItem, pk=['order_id', 'item_id'])
+
+# Insert with composite PK
+item = await order_items.insert({
+    "order_id": 1,
+    "item_id": 101,
+    "quantity": 5,
+    "price": 9.99
+})
+
+# Get by composite PK (use tuple)
+item = await order_items[(1, 101)]
+print(item)
+# {'order_id': 1, 'item_id': 101, 'quantity': 5, 'price': 9.99}
+
+# Update with composite PK
+updated = await order_items.update({
+    "order_id": 1,
+    "item_id": 101,
+    "quantity": 10,
+    "price": 9.99
+})
+
+# Delete by composite PK (use tuple)
+await order_items.delete((1, 101))
+
+# with_pk returns tuple for composite PKs
+results = await order_items(with_pk=True)
+for pk, record in results:
+    print(f"PK={pk}")  # PK=(1, 101)
+```
+
+### Rich Types (Text, JSON, datetime)
+
+```python
+from deebase import Text
+from datetime import datetime
+
+class BlogPost:
+    id: int
+    title: str              # VARCHAR
+    slug: str               # VARCHAR
+    content: Text           # TEXT (unlimited)
+    metadata: dict          # JSON
+    created_at: datetime    # TIMESTAMP
+
+posts = await db.create(BlogPost, pk='id')
+
+# Insert with rich types
+post = await posts.insert({
+    "title": "Getting Started",
+    "slug": "getting-started",
+    "content": "A" * 10000,  # Very long text
+    "metadata": {
+        "author": "Alice",
+        "tags": ["python", "tutorial"],
+        "views": 0
+    },
+    "created_at": datetime.now()
+})
+
+print(len(post['content']))  # 10000
+print(post['metadata']['author'])  # 'Alice'
+print(type(post['created_at']))  # datetime
+
+# Update JSON field
+post['metadata']['views'] = 100
+post['metadata']['tags'].append("database")
+updated = await posts.update(post)
+print(updated['metadata'])
+# {'author': 'Alice', 'tags': ['python', 'tutorial', 'database'], 'views': 100}
+```
+
+### xtra() Filtering
+
+The `xtra()` method creates a filtered view of a table that applies to all CRUD operations:
+
+```python
+class Post:
+    id: int
+    title: str
+    user_id: int
+
+posts = await db.create(Post, pk='id')
+
+# Insert some posts
+await posts.insert({"title": "Post 1", "user_id": 1})
+await posts.insert({"title": "Post 2", "user_id": 1})
+await posts.insert({"title": "Post 3", "user_id": 2})
+
+# Create filtered view for user 1
+user1_posts = posts.xtra(user_id=1)
+
+# SELECT respects filter
+my_posts = await user1_posts()
+print(len(my_posts))  # 2 (only user_id=1)
+
+# INSERT auto-sets filter value
+new_post = await user1_posts.insert({"title": "Post 4"})
+print(new_post['user_id'])  # 1 (automatically set)
+
+# LOOKUP respects filter
+found = await user1_posts.lookup(title="Post 1")  # Works
+try:
+    found = await user1_posts.lookup(title="Post 3")  # Fails (user_id=2)
+except NotFoundError:
+    print("Post not accessible through this filter")
+
+# DELETE respects filter
+await user1_posts.delete(1)  # Works if post 1 is user_id=1
+try:
+    await user1_posts.delete(3)  # Fails (post 3 is user_id=2)
+except NotFoundError:
+    print("Cannot delete post from other user")
+
+# Original table is unchanged
+all_posts = await posts()
+print(len(all_posts))  # Still shows all posts
+```
+
+### Full CRUD Cycle Example
+
+```python
+from deebase import Database, NotFoundError
+
+db = Database("sqlite+aiosqlite:///myapp.db")
+
+class Task:
+    id: int
+    title: str
+    completed: bool
+
+tasks = await db.create(Task, pk='id')
+
+# CREATE
+task = await tasks.insert({"title": "Learn DeeBase", "completed": False})
+task_id = task['id']
+print(f"Created task {task_id}")
+
+# READ
+fetched = await tasks[task_id]
+print(f"Task: {fetched['title']}, completed: {fetched['completed']}")
+
+# READ ALL
+all_tasks = await tasks()
+print(f"Total tasks: {len(all_tasks)}")
+
+# UPDATE
+fetched['completed'] = True
+updated = await tasks.update(fetched)
+print(f"Updated task: {updated['completed']}")  # True
+
+# DELETE
+await tasks.delete(task_id)
+print(f"Deleted task {task_id}")
+
+# Verify deletion
+try:
+    await tasks[task_id]
+except NotFoundError:
+    print("Task successfully deleted")
+```
+
+### Error Handling
+
+```python
+from deebase import NotFoundError
+
+users = await db.create(User, pk='id')
+
+# Get non-existent record
+try:
+    user = await users[999]
+except NotFoundError as e:
+    print(f"Error: {e}")  # "Record with PK 999 not found"
+
+# Lookup non-existent record
+try:
+    user = await users.lookup(email="missing@example.com")
+except NotFoundError as e:
+    print(f"Error: {e}")  # "No record found matching {'email': '...'}"
+
+# Update non-existent record
+try:
+    await users.update({"id": 999, "name": "Ghost", "email": "ghost@example.com"})
+except NotFoundError as e:
+    print(f"Error: {e}")  # "Record with PK {'id': 999} not found..."
+
+# Delete non-existent record
+try:
+    await users.delete(999)
+except NotFoundError as e:
+    print(f"Error: {e}")  # "Record with PK 999 not found..."
+```
+
+### Testing
+
+- **27 new Phase 3 tests** - All passing ✅
+- **105 total tests** (Phase 1 + 2 + 3) - All passing ✅
+- Comprehensive coverage:
+  - Basic CRUD with dicts
+  - Composite primary keys
+  - Rich types (Text, JSON, datetime, Optional)
+  - xtra() filtering on all operations
+  - Error handling and edge cases
+  - with_pk parameter
+
+---
+
 ## Dependencies
 
 - Python 3.14+

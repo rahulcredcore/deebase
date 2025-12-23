@@ -13,6 +13,9 @@ uv run examples/phase1_raw_sql.py
 # Run Phase 2 example (table creation)
 uv run examples/phase2_table_creation.py
 
+# Run Phase 3 example (CRUD operations)
+uv run examples/phase3_crud_operations.py
+
 # Run complete example (combined features)
 uv run examples/complete_example.py
 ```
@@ -56,17 +59,47 @@ Demonstrates Phase 2 features:
 - `table.c` for column access
 - `table.drop()` for cleanup
 
+### phase3_crud_operations.py
+
+Demonstrates Phase 3 CRUD features:
+- Insert records with auto-generated PKs
+- Select all/limited records
+- Get records by primary key
+- Lookup records by column values
+- Update existing records
+- Delete records
+- Upsert (insert or update)
+- Composite primary keys
+- Rich types (Text, JSON, datetime)
+- with_pk parameter
+- Error handling with NotFoundError
+- xtra() filtering
+
+**Topics covered:**
+- `table.insert(record)` - Create records
+- `table()` and `table(limit=N)` - Read all/limited
+- `table[pk]` - Read by primary key
+- `table.lookup(**kwargs)` - Find by conditions
+- `table.update(record)` - Update records
+- `table.delete(pk)` - Delete records
+- `table.upsert(record)` - Insert or update
+- `table(with_pk=True)` - Return (pk, record) tuples
+- `table.xtra(**filters)` - Apply filters
+- Composite primary keys with tuples
+- Rich type handling (Text, dict/JSON, datetime)
+
 ### complete_example.py
 
-A realistic workflow combining Phase 1 & 2:
+A realistic workflow combining all phases (1, 2, 3):
 - Defines a blog database schema
 - Creates tables from Python classes
-- Populates data with raw SQL
-- Queries with JOINs
+- Populates data with CRUD operations
+- Queries with raw SQL and JOINs
+- Demonstrates CRUD operations
 - Shows schema inspection
 - Demonstrates practical usage patterns
 
-**Use case:** Building a simple blog system with authors and posts.
+**Use case:** Building a complete blog system with authors and posts.
 
 ## Key Patterns
 

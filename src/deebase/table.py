@@ -97,8 +97,63 @@ class Table:
         Returns:
             Inserted record as dict or dataclass (depending on configuration)
         """
-        # TODO: Implement in Phase 3
-        raise NotImplementedError("insert() will be implemented in Phase 3")
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy.orm import sessionmaker
+
+        # Convert input to dict
+        data = self._from_input(record)
+
+        # Validate xtra filters - ensure inserted record matches filters
+        for col_name, expected_value in self._xtra_filters.items():
+            if col_name in data and data[col_name] != expected_value:
+                raise NotFoundError(
+                    f"Cannot insert: {col_name}={data[col_name]} violates filter {col_name}={expected_value}"
+                )
+            # If not provided, set the xtra filter value
+            data[col_name] = expected_value
+
+        # Create session factory
+        session_factory = sessionmaker(
+            self._engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+
+        # Execute INSERT and fetch the inserted record
+        async with session_factory() as session:
+            try:
+                # Insert the record
+                stmt = sa.insert(self._sa_table).values(**data)
+                result = await session.execute(stmt)
+                await session.commit()
+
+                # Get the inserted record's primary key
+                inserted_pk = result.inserted_primary_key
+
+                # Fetch the complete inserted record to get all values (including defaults)
+                pk_cols = list(self._sa_table.primary_key.columns)
+                if len(pk_cols) == 1:
+                    # Single PK
+                    select_stmt = sa.select(self._sa_table).where(
+                        pk_cols[0] == inserted_pk[0]
+                    )
+                else:
+                    # Composite PK
+                    select_stmt = sa.select(self._sa_table)
+                    for i, pk_col in enumerate(pk_cols):
+                        select_stmt = select_stmt.where(pk_col == inserted_pk[i])
+
+                fetch_result = await session.execute(select_stmt)
+                row = fetch_result.fetchone()
+
+                if row is None:
+                    raise RuntimeError("Failed to fetch inserted record")
+
+                return self._to_record(row)
+
+            except Exception:
+                await session.rollback()
+                raise
 
     async def update(self, record: dict | Any) -> dict | Any:
         """Update a record in the table.
@@ -112,8 +167,78 @@ class Table:
         Raises:
             NotFoundError: If record not found or violates xtra filters
         """
-        # TODO: Implement in Phase 3
-        raise NotImplementedError("update() will be implemented in Phase 3")
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy.orm import sessionmaker
+
+        # Convert input to dict
+        data = self._from_input(record)
+
+        # Extract primary key values from the record
+        pk_cols = list(self._sa_table.primary_key.columns)
+        pk_values = {}
+        for pk_col in pk_cols:
+            if pk_col.name not in data:
+                raise ValueError(f"Primary key column '{pk_col.name}' missing from record")
+            pk_values[pk_col.name] = data[pk_col.name]
+
+        # Validate xtra filters
+        for col_name, expected_value in self._xtra_filters.items():
+            if col_name in data and data[col_name] != expected_value:
+                raise NotFoundError(
+                    f"Cannot update: {col_name}={data[col_name]} violates filter {col_name}={expected_value}"
+                )
+
+        # Create session factory
+        session_factory = sessionmaker(
+            self._engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+
+        # Execute UPDATE
+        async with session_factory() as session:
+            try:
+                # Build WHERE clause for primary key(s)
+                stmt = sa.update(self._sa_table)
+                for pk_col in pk_cols:
+                    stmt = stmt.where(pk_col == pk_values[pk_col.name])
+
+                # Apply xtra filters to WHERE clause
+                for col_name, value in self._xtra_filters.items():
+                    stmt = stmt.where(self._sa_table.c[col_name] == value)
+
+                # Set new values (excluding PK columns)
+                update_data = {k: v for k, v in data.items() if k not in pk_values}
+                stmt = stmt.values(**update_data)
+
+                result = await session.execute(stmt)
+                await session.commit()
+
+                # Check if any row was updated
+                if result.rowcount == 0:
+                    raise NotFoundError(
+                        f"Record with PK {pk_values} not found or violates xtra filters"
+                    )
+
+                # Fetch and return the updated record
+                select_stmt = sa.select(self._sa_table)
+                for pk_col in pk_cols:
+                    select_stmt = select_stmt.where(pk_col == pk_values[pk_col.name])
+
+                fetch_result = await session.execute(select_stmt)
+                row = fetch_result.fetchone()
+
+                if row is None:
+                    raise NotFoundError(f"Record with PK {pk_values} not found after update")
+
+                return self._to_record(row)
+
+            except NotFoundError:
+                await session.rollback()
+                raise
+            except Exception:
+                await session.rollback()
+                raise
 
     async def upsert(self, record: dict | Any) -> dict | Any:
         """Insert or update a record based on primary key existence.
@@ -124,8 +249,59 @@ class Table:
         Returns:
             Upserted record as dict or dataclass
         """
-        # TODO: Implement in Phase 7
-        raise NotImplementedError("upsert() will be implemented in Phase 7")
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy.orm import sessionmaker
+
+        # Convert input to dict
+        data = self._from_input(record)
+
+        # Extract primary key values from the record
+        pk_cols = list(self._sa_table.primary_key.columns)
+        pk_values = {}
+        has_pk = True
+        for pk_col in pk_cols:
+            if pk_col.name not in data or data[pk_col.name] is None:
+                has_pk = False
+                break
+            pk_values[pk_col.name] = data[pk_col.name]
+
+        # If no PK provided, just insert
+        if not has_pk:
+            return await self.insert(record)
+
+        # Check if record exists
+        session_factory = sessionmaker(
+            self._engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+
+        async with session_factory() as session:
+            try:
+                # Build SELECT to check existence
+                select_stmt = sa.select(self._sa_table)
+                for pk_col in pk_cols:
+                    select_stmt = select_stmt.where(pk_col == pk_values[pk_col.name])
+
+                # Apply xtra filters
+                for col_name, value in self._xtra_filters.items():
+                    select_stmt = select_stmt.where(self._sa_table.c[col_name] == value)
+
+                result = await session.execute(select_stmt)
+                existing = result.fetchone()
+
+                # Commit the session (even though we only did a SELECT)
+                await session.commit()
+
+            except Exception:
+                await session.rollback()
+                raise
+
+        # If exists, update; otherwise, insert
+        if existing:
+            return await self.update(record)
+        else:
+            return await self.insert(record)
 
     async def delete(self, pk_value: Any) -> None:
         """Delete a record by primary key.
@@ -136,8 +312,59 @@ class Table:
         Raises:
             NotFoundError: If record not found or violates xtra filters
         """
-        # TODO: Implement in Phase 3
-        raise NotImplementedError("delete() will be implemented in Phase 3")
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy.orm import sessionmaker
+
+        # Get primary key columns
+        pk_cols = list(self._sa_table.primary_key.columns)
+
+        # Normalize pk_value to a tuple
+        if len(pk_cols) == 1:
+            pk_values = (pk_value,)
+        else:
+            if not isinstance(pk_value, (tuple, list)):
+                raise ValueError(f"Composite primary key requires tuple/list, got {type(pk_value)}")
+            pk_values = tuple(pk_value)
+
+        if len(pk_values) != len(pk_cols):
+            raise ValueError(
+                f"Primary key mismatch: expected {len(pk_cols)} values, got {len(pk_values)}"
+            )
+
+        # Create session factory
+        session_factory = sessionmaker(
+            self._engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+
+        # Execute DELETE
+        async with session_factory() as session:
+            try:
+                # Build DELETE statement with WHERE clause
+                stmt = sa.delete(self._sa_table)
+                for i, pk_col in enumerate(pk_cols):
+                    stmt = stmt.where(pk_col == pk_values[i])
+
+                # Apply xtra filters
+                for col_name, value in self._xtra_filters.items():
+                    stmt = stmt.where(self._sa_table.c[col_name] == value)
+
+                result = await session.execute(stmt)
+                await session.commit()
+
+                # Check if any row was deleted
+                if result.rowcount == 0:
+                    raise NotFoundError(
+                        f"Record with PK {pk_value} not found or violates xtra filters"
+                    )
+
+            except NotFoundError:
+                await session.rollback()
+                raise
+            except Exception:
+                await session.rollback()
+                raise
 
     async def lookup(self, **kwargs) -> dict | Any:
         """Find a single record matching the given criteria.
@@ -151,8 +378,51 @@ class Table:
         Raises:
             NotFoundError: If no record matches
         """
-        # TODO: Implement in Phase 3
-        raise NotImplementedError("lookup() will be implemented in Phase 3")
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy.orm import sessionmaker
+
+        if not kwargs:
+            raise ValueError("lookup() requires at least one filter argument")
+
+        # Create session factory
+        session_factory = sessionmaker(
+            self._engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+
+        # Execute SELECT with WHERE
+        async with session_factory() as session:
+            try:
+                # Build SELECT statement
+                stmt = sa.select(self._sa_table)
+
+                # Apply lookup filters
+                for col_name, value in kwargs.items():
+                    if col_name not in self._sa_table.c:
+                        raise ValueError(f"Column '{col_name}' not found in table")
+                    stmt = stmt.where(self._sa_table.c[col_name] == value)
+
+                # Apply xtra filters
+                for col_name, value in self._xtra_filters.items():
+                    stmt = stmt.where(self._sa_table.c[col_name] == value)
+
+                result = await session.execute(stmt)
+                row = result.fetchone()
+
+                await session.commit()
+
+                if row is None:
+                    raise NotFoundError(f"No record found matching {kwargs}")
+
+                return self._to_record(row)
+
+            except NotFoundError:
+                await session.rollback()
+                raise
+            except Exception:
+                await session.rollback()
+                raise
 
     async def __call__(
         self,
@@ -168,8 +438,55 @@ class Table:
         Returns:
             List of records as dicts or dataclasses
         """
-        # TODO: Implement in Phase 3
-        raise NotImplementedError("__call__() will be implemented in Phase 3")
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy.orm import sessionmaker
+
+        # Create session factory
+        session_factory = sessionmaker(
+            self._engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+
+        # Execute SELECT
+        async with session_factory() as session:
+            try:
+                # Build SELECT statement
+                stmt = sa.select(self._sa_table)
+
+                # Apply xtra filters
+                for col_name, value in self._xtra_filters.items():
+                    stmt = stmt.where(self._sa_table.c[col_name] == value)
+
+                # Apply limit if specified
+                if limit is not None:
+                    stmt = stmt.limit(limit)
+
+                result = await session.execute(stmt)
+                rows = result.fetchall()
+
+                await session.commit()
+
+                # Convert rows to records
+                if with_pk:
+                    # Return tuples of (pk_value, record)
+                    pk_cols = list(self._sa_table.primary_key.columns)
+                    records = []
+                    for row in rows:
+                        record = self._to_record(row)
+                        # Extract PK value(s)
+                        if len(pk_cols) == 1:
+                            pk_value = row._mapping[pk_cols[0].name]
+                        else:
+                            pk_value = tuple(row._mapping[pk_col.name] for pk_col in pk_cols)
+                        records.append((pk_value, record))
+                    return records
+                else:
+                    return [self._to_record(row) for row in rows]
+
+            except Exception:
+                await session.rollback()
+                raise
 
     async def __getitem__(self, pk_value: Any) -> dict | Any:
         """Get a record by primary key.
@@ -183,8 +500,60 @@ class Table:
         Raises:
             NotFoundError: If record not found
         """
-        # TODO: Implement in Phase 3
-        raise NotImplementedError("__getitem__() will be implemented in Phase 3")
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy.orm import sessionmaker
+
+        # Get primary key columns
+        pk_cols = list(self._sa_table.primary_key.columns)
+
+        # Normalize pk_value to a tuple
+        if len(pk_cols) == 1:
+            pk_values = (pk_value,)
+        else:
+            if not isinstance(pk_value, (tuple, list)):
+                raise ValueError(f"Composite primary key requires tuple/list, got {type(pk_value)}")
+            pk_values = tuple(pk_value)
+
+        if len(pk_values) != len(pk_cols):
+            raise ValueError(
+                f"Primary key mismatch: expected {len(pk_cols)} values, got {len(pk_values)}"
+            )
+
+        # Create session factory
+        session_factory = sessionmaker(
+            self._engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+
+        # Execute SELECT
+        async with session_factory() as session:
+            try:
+                # Build SELECT statement
+                stmt = sa.select(self._sa_table)
+                for i, pk_col in enumerate(pk_cols):
+                    stmt = stmt.where(pk_col == pk_values[i])
+
+                # Apply xtra filters
+                for col_name, value in self._xtra_filters.items():
+                    stmt = stmt.where(self._sa_table.c[col_name] == value)
+
+                result = await session.execute(stmt)
+                row = result.fetchone()
+
+                await session.commit()
+
+                if row is None:
+                    raise NotFoundError(f"Record with PK {pk_value} not found")
+
+                return self._to_record(row)
+
+            except NotFoundError:
+                await session.rollback()
+                raise
+            except Exception:
+                await session.rollback()
+                raise
 
     async def drop(self) -> None:
         """Drop the table from the database."""
@@ -222,8 +591,11 @@ class Table:
 
     def _to_record(self, row: sa.Row) -> dict | Any:
         """Convert a SQLAlchemy Row to dict or dataclass based on configuration."""
+        from dataclasses import is_dataclass
+
         data = self._to_dict(row)
-        if self._dataclass_cls:
+        # Only convert to dataclass if the class is actually a dataclass
+        if self._dataclass_cls and is_dataclass(self._dataclass_cls):
             return dict_to_dataclass(data, self._dataclass_cls)
         return data
 

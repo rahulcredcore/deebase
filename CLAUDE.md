@@ -29,7 +29,8 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
-🚧 **Phase 3 In Progress** - CRUD Operations
+✅ **Phase 3 Complete** - CRUD Operations
+🚧 **Phase 4 In Progress** - Dataclass Support
 
 **Completed:**
 - Database class with async engine and `q()` method
@@ -37,19 +38,23 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - Complete dataclass utilities
 - Table creation from Python classes with `db.create()`
 - Schema inspection and table dropping
-- 78 passing tests (62 + 16 new)
+- Full CRUD operations (insert, update, upsert, delete, select, lookup)
+- Composite primary keys
+- xtra() filtering
+- Error handling with NotFoundError
+- 105 passing tests (78 + 27 new)
 
-**Current Focus:** Implementing CRUD operations (insert, update, upsert, delete, select, lookup)
+**Current Focus:** Next phases will add dataclass support, reflection, and views
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
 
 ## Basic Usage
 
-### Working Now (Phases 1 & 2)
+### Working Now (Phases 1, 2 & 3)
 
 ```python
-from deebase import Database, Text
+from deebase import Database, Text, NotFoundError
 from datetime import datetime
 
 # Create database connection
@@ -71,6 +76,50 @@ class Article:
 
 articles = await db.create(Article, pk='id')
 
+# CRUD Operations (Phase 3)
+
+# INSERT
+article = await articles.insert({
+    "title": "Getting Started",
+    "content": "Long article content...",
+    "metadata": {"author": "Alice", "tags": ["tutorial"]},
+    "created_at": datetime.now()
+})
+# Returns: {'id': 1, 'title': 'Getting Started', ...}
+
+# SELECT all
+all_articles = await articles()
+# Returns: [{'id': 1, ...}, {'id': 2, ...}]
+
+# SELECT with limit
+recent = await articles(limit=5)
+
+# GET by primary key
+article = await articles[1]
+
+# LOOKUP by column
+found = await articles.lookup(title="Getting Started")
+
+# UPDATE
+article['metadata']['views'] = 100
+updated = await articles.update(article)
+
+# UPSERT (insert or update)
+await articles.upsert({"id": 1, "title": "Updated Title", ...})
+
+# DELETE
+await articles.delete(1)
+
+# Error handling
+try:
+    await articles[999]
+except NotFoundError:
+    print("Article not found")
+
+# xtra() filtering
+user_articles = articles.xtra(author_id=1)
+my_articles = await user_articles()  # Only author_id=1
+
 # View schema
 print(articles.schema)
 
@@ -82,49 +131,39 @@ sa_table = articles.sa_table
 await articles.drop()
 ```
 
-### Coming in Phase 3
+### Coming in Phase 4+
 
 ```python
-from deebase import Database, Text
-from datetime import datetime
+# Phase 4: Enhanced Dataclass Support
+from dataclasses import dataclass
 
-# Define a table structure with rich types
+@dataclass
 class Article:
     id: int
-    title: str              # VARCHAR (short string)
-    slug: str               # VARCHAR
-    content: Text           # TEXT (unlimited)
-    metadata: dict          # JSON column
-    created_at: datetime    # TIMESTAMP
+    title: str
+    content: Text
 
-# Create table from class
 articles = await db.create(Article, pk='id')
 
-# Insert records (returns dict by default)
-article = await articles.insert({
-    "title": "Getting Started",
-    "slug": "getting-started",
-    "content": "Long article content...",
-    "metadata": {"author": "Alice", "tags": ["tutorial"]},
-    "created_at": datetime.now()
-})
+# With @dataclass, all operations return dataclass instances
+article = await articles.insert(Article(id=None, title="Test", content="..."))
+# article is an Article dataclass instance
 
-# Query records
-all_articles = await articles()
-article = await articles[1]
-found = await articles.lookup(slug="getting-started")
-
-# Enable dataclass mode for type safety
+# Or explicitly enable dataclass mode
 Article = articles.dataclass()
-typed_article = await articles.insert(Article(...))
-# typed_article is now an Article dataclass instance
 
-# Update and delete
-await articles.update(Article(id=1, title="Updated Title", ...))
-await articles.delete(1)
+# Phase 5: Dynamic Access & Reflection
+# Access existing tables without defining classes
+users = db.t.users              # Reflect from database
+posts = db.t['posts']           # Alternative syntax
+users, posts = db.t['users', 'posts']  # Multiple tables
 
-# Access underlying SQLAlchemy
-sa_table = articles.sa_table
+# Phase 7: Views
+view = await db.create_view(
+    "popular_posts",
+    "SELECT * FROM posts WHERE views > 1000"
+)
+popular = await view()  # Read-only access
 ```
 
 ## Architecture
@@ -171,16 +210,20 @@ src/deebase/
 - ✅ Table.drop() method
 - ✅ 16 new tests (78 total passing)
 
-**Phase 3: CRUD Operations** 🚧 IN PROGRESS
-- [ ] `table.insert()` - Insert records
-- [ ] `table.update()` - Update records
-- [ ] `table.upsert()` - Insert or update
-- [ ] `table.delete()` - Delete records
-- [ ] `table()` - Select all/limited records
-- [ ] `table[pk]` - Get by primary key
-- [ ] `table.lookup()` - Query with WHERE conditions
+**Phase 3: CRUD Operations** ✅ COMPLETE
+- ✅ `table.insert()` - Insert records with auto-generated PKs
+- ✅ `table.update()` - Update records
+- ✅ `table.upsert()` - Insert or update
+- ✅ `table.delete()` - Delete records
+- ✅ `table()` - Select all/limited records
+- ✅ `table[pk]` - Get by primary key
+- ✅ `table.lookup()` - Query with WHERE conditions
+- ✅ Composite primary keys
+- ✅ xtra() filtering
+- ✅ Error handling with NotFoundError
+- ✅ 27 new tests (105 total passing)
 
-**Phase 4+:** Dataclass support, reflection, filtering, views, polish
+**Phase 4+:** Enhanced dataclass support, reflection, views, polish
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 8-phase roadmap.
 See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
@@ -196,7 +239,10 @@ uv run examples/phase1_raw_sql.py
 # Phase 2: Table creation from Python classes
 uv run examples/phase2_table_creation.py
 
-# Complete example: Blog database with authors and posts
+# Phase 3: CRUD operations
+uv run examples/phase3_crud_operations.py
+
+# Complete example: Blog database with full CRUD
 uv run examples/complete_example.py
 ```
 
@@ -204,8 +250,11 @@ All examples use in-memory databases and demonstrate:
 - Database connection and setup
 - Raw SQL execution
 - Table creation with rich types (str, Text, dict/JSON)
+- Full CRUD operations (insert, update, upsert, delete, select, lookup)
+- Composite primary keys
+- xtra() filtering
+- Error handling
 - Schema inspection
-- Column access
 - Practical usage patterns
 
 See [examples/README.md](examples/README.md) for details.

@@ -1,11 +1,11 @@
 """
-Complete Example: Combining Phase 1 & 2
+Complete Example: Building a Blog Database
 
-This example shows a realistic workflow combining:
+This example shows a realistic workflow combining all phases:
 - Table creation from Python classes (Phase 2)
-- Raw SQL queries for data manipulation (Phase 1)
+- CRUD operations with rich types (Phase 3)
 - Schema inspection
-- Type safety with rich types
+- Type safety with Text, JSON, datetime
 """
 
 import asyncio
@@ -53,50 +53,51 @@ async def main():
     posts = await db.create(Post, pk='id')
     print(f"   ✓ Created: {authors._name}, {posts._name}\n")
 
-    # Insert authors using raw SQL
+    # Insert authors using CRUD
     print("3. Inserting authors...")
-    await db.q("""
-        INSERT INTO author (id, name, email, bio) VALUES
-        (1, 'Alice Smith', 'alice@example.com', 'Tech writer and blogger'),
-        (2, 'Bob Jones', 'bob@example.com', 'Software engineer and author')
-    """)
-    print("   ✓ 2 authors inserted\n")
+    author1 = await authors.insert({
+        "name": "Alice Smith",
+        "email": "alice@example.com",
+        "bio": "Tech writer and blogger"
+    })
+    author2 = await authors.insert({
+        "name": "Bob Jones",
+        "email": "bob@example.com",
+        "bio": "Software engineer and author"
+    })
+    print(f"   ✓ 2 authors inserted (IDs: {author1['id']}, {author2['id']})\n")
 
-    # Insert posts using raw SQL with JSON
+    # Insert posts using CRUD with rich types (Text, dict/JSON, datetime)
     print("4. Inserting posts...")
-    await db.q("""
-        INSERT INTO post (id, title, slug, content, excerpt, author_id, metadata,
-                         published, view_count, created_at)
-        VALUES (
-            1,
-            'Getting Started with DeeBase',
-            'getting-started-deebase',
-            'This is a comprehensive guide to DeeBase, an async database library...',
-            'Learn how to use DeeBase for async database operations',
-            1,
-            '{"category": "tutorial", "tags": ["python", "async", "database"]}',
-            1,
-            42,
-            '2025-12-23 10:00:00'
-        )
-    """)
+    post1 = await posts.insert({
+        "title": "Getting Started with DeeBase",
+        "slug": "getting-started-deebase",
+        "content": "This is a comprehensive guide to DeeBase, an async database library...",
+        "excerpt": "Learn how to use DeeBase for async database operations",
+        "author_id": author1['id'],
+        "metadata": {
+            "category": "tutorial",
+            "tags": ["python", "async", "database"]
+        },
+        "published": True,
+        "view_count": 42,
+        "created_at": datetime(2025, 12, 23, 10, 0, 0)
+    })
 
-    await db.q("""
-        INSERT INTO post (id, title, slug, content, author_id, metadata,
-                         published, view_count, created_at)
-        VALUES (
-            2,
-            'Advanced SQLAlchemy Patterns',
-            'advanced-sqlalchemy',
-            'Explore advanced patterns for using SQLAlchemy with async Python...',
-            2,
-            '{"category": "advanced", "tags": ["sqlalchemy", "patterns"]}',
-            1,
-            156,
-            '2025-12-22 14:30:00'
-        )
-    """)
-    print("   ✓ 2 posts inserted\n")
+    post2 = await posts.insert({
+        "title": "Advanced SQLAlchemy Patterns",
+        "slug": "advanced-sqlalchemy",
+        "content": "Explore advanced patterns for using SQLAlchemy with async Python...",
+        "author_id": author2['id'],
+        "metadata": {
+            "category": "advanced",
+            "tags": ["sqlalchemy", "patterns"]
+        },
+        "published": True,
+        "view_count": 156,
+        "created_at": datetime(2025, 12, 22, 14, 30, 0)
+    })
+    print(f"   ✓ 2 posts inserted (IDs: {post1['id']}, {post2['id']})\n")
 
     # Query data with SQL
     print("5. Querying blog posts...")
@@ -131,25 +132,40 @@ async def main():
     print(posts.schema)
     print()
 
-    # Statistics
-    print("7. Blog statistics...")
-    stats = await db.q("""
-        SELECT
-            COUNT(*) as total_posts,
-            SUM(view_count) as total_views,
-            AVG(view_count) as avg_views_per_post,
-            COUNT(DISTINCT author_id) as total_authors
-        FROM post
-    """)
+    # CRUD operations demo
+    print("7. Demonstrating CRUD operations...")
 
-    stat = stats[0]
-    print(f"   Total posts: {stat['total_posts']}")
-    print(f"   Total views: {stat['total_views']}")
-    print(f"   Average views per post: {stat['avg_views_per_post']:.1f}")
-    print(f"   Total authors: {stat['total_authors']}\n")
+    # Lookup by slug
+    found_post = await posts.lookup(slug="getting-started-deebase")
+    print(f"   • Found post by slug: {found_post['title']}")
+
+    # Update view count
+    found_post['view_count'] += 10
+    updated_post = await posts.update(found_post)
+    print(f"   • Updated view count: {updated_post['view_count']}")
+
+    # Get by primary key
+    fetched = await posts[post2['id']]
+    print(f"   • Fetched by PK: {fetched['title']}")
+
+    # Select all with limit
+    limited = await posts(limit=1)
+    print(f"   • Selected with limit(1): {limited[0]['title']}\n")
+
+    # Statistics
+    print("8. Blog statistics...")
+    all_posts = await posts()
+    all_authors = await authors()
+    total_views = sum(p['view_count'] for p in all_posts)
+    avg_views = total_views / len(all_posts) if all_posts else 0
+
+    print(f"   Total posts: {len(all_posts)}")
+    print(f"   Total views: {total_views}")
+    print(f"   Average views per post: {avg_views:.1f}")
+    print(f"   Total authors: {len(all_authors)}\n")
 
     # Clean up
-    print("8. Cleaning up...")
+    print("9. Cleaning up...")
     await posts.drop()
     await authors.drop()
     await db.close()

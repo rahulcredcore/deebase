@@ -837,6 +837,374 @@ Table wrapper returned to user
 
 ---
 
+## 9. CRUD Operations (Phase 3)
+
+Phase 3 implements full CRUD operations using SQLAlchemy Core DML (Data Manipulation Language) statements. All operations follow a consistent pattern: create session → build statement → execute → fetch results → return processed data.
+
+### Insert Operation
+
+**What it does:**
+Inserts a record and returns the full inserted row (including auto-generated values like auto-increment IDs).
+
+**SQLAlchemy operations used:**
+```python
+# In Table.insert()
+stmt = sa.insert(self._sa_table).values(**data)
+result = await session.execute(stmt)
+
+# Get auto-generated primary key
+inserted_pk = result.inserted_primary_key  # Tuple of PK values
+
+# Fetch complete record with generated values
+select_stmt = sa.select(self._sa_table).where(
+    pk_col == inserted_pk[0]
+)
+row = (await session.execute(select_stmt)).fetchone()
+```
+
+**Key techniques:**
+- `sa.insert()` creates an INSERT statement
+- `result.inserted_primary_key` provides auto-generated PK values
+- Follow-up SELECT fetches the complete record with defaults/triggers
+- Handles composite PKs by building WHERE clause for all PK columns
+
+**Flow:**
+```
+user input (dict/dataclass)
+   ↓
+_from_input() → converts to dict
+   ↓
+Validate xtra filters (auto-set if missing)
+   ↓
+Build INSERT statement with sa.insert()
+   ↓
+Execute and get inserted_primary_key
+   ↓
+SELECT to fetch complete row
+   ↓
+_to_record() → dict or dataclass
+```
+
+### Update Operation
+
+**What it does:**
+Updates a record by primary key and returns the updated row.
+
+**SQLAlchemy operations used:**
+```python
+# In Table.update()
+stmt = sa.update(self._sa_table)
+
+# WHERE clause for PK
+for pk_col in pk_cols:
+    stmt = stmt.where(pk_col == pk_values[pk_col.name])
+
+# Apply xtra filters to WHERE
+for col_name, value in self._xtra_filters.items():
+    stmt = stmt.where(self._sa_table.c[col_name] == value)
+
+# Set new values (excluding PK columns)
+stmt = stmt.values(**update_data)
+
+result = await session.execute(stmt)
+
+# Check if row was updated
+if result.rowcount == 0:
+    raise NotFoundError(...)
+```
+
+**Key techniques:**
+- `sa.update()` creates an UPDATE statement
+- `.where()` adds WHERE conditions (PK + xtra filters)
+- `.values()` sets the new column values
+- `result.rowcount` detects if record existed
+- Follow-up SELECT fetches the updated record
+
+**Flow:**
+```
+user input with PK
+   ↓
+Extract PK values from record
+   ↓
+Build UPDATE with WHERE (PK + xtra)
+   ↓
+Execute and check rowcount
+   ↓
+Raise NotFoundError if rowcount == 0
+   ↓
+SELECT to fetch updated row
+   ↓
+Return processed record
+```
+
+### Delete Operation
+
+**What it does:**
+Deletes a record by primary key (or composite PK tuple).
+
+**SQLAlchemy operations used:**
+```python
+# In Table.delete()
+stmt = sa.delete(self._sa_table)
+
+# WHERE clause for PK(s)
+for i, pk_col in enumerate(pk_cols):
+    stmt = stmt.where(pk_col == pk_values[i])
+
+# Apply xtra filters
+for col_name, value in self._xtra_filters.items():
+    stmt = stmt.where(self._sa_table.c[col_name] == value)
+
+result = await session.execute(stmt)
+
+if result.rowcount == 0:
+    raise NotFoundError(...)
+```
+
+**Key techniques:**
+- `sa.delete()` creates a DELETE statement
+- Multiple `.where()` calls for composite PKs
+- `result.rowcount` detects if record was found
+- xtra filters prevent deleting wrong user's data
+
+### Select Operations
+
+**What they do:**
+- `table()` → SELECT all or limited records
+- `table[pk]` → SELECT single record by primary key
+- `table.lookup(**kwargs)` → SELECT single record by WHERE conditions
+
+**SQLAlchemy operations used:**
+```python
+# SELECT all/limited
+stmt = sa.select(self._sa_table)
+stmt = stmt.where(...)  # Apply xtra filters
+stmt = stmt.limit(N)    # Optional limit
+rows = (await session.execute(stmt)).fetchall()
+
+# SELECT by PK
+stmt = sa.select(self._sa_table).where(pk_col == pk_value)
+row = (await session.execute(stmt)).fetchone()
+
+# SELECT with WHERE conditions
+stmt = sa.select(self._sa_table)
+for col_name, value in filters.items():
+    stmt = stmt.where(self._sa_table.c[col_name] == value)
+row = (await session.execute(stmt)).fetchone()
+```
+
+**Key techniques:**
+- `sa.select(table)` creates a SELECT statement
+- `.where(column == value)` adds WHERE conditions
+- `.limit(N)` adds LIMIT clause
+- `.fetchall()` for multiple rows, `.fetchone()` for single row
+- `row._mapping` converts Row to dict-like object
+
+**with_pk parameter:**
+```python
+# When with_pk=True, return (pk_value, record) tuples
+results = []
+for row in rows:
+    record = self._to_record(row)
+    if len(pk_cols) == 1:
+        pk_value = row._mapping[pk_cols[0].name]
+    else:
+        pk_value = tuple(row._mapping[pk_col.name] for pk_col in pk_cols)
+    results.append((pk_value, record))
+```
+
+### Upsert Operation
+
+**What it does:**
+Inserts if PK doesn't exist, updates if it does.
+
+**Implementation strategy:**
+```python
+# In Table.upsert()
+# 1. Check if PK is provided
+if not has_pk:
+    return await self.insert(record)
+
+# 2. Check if record exists with SELECT
+select_stmt = sa.select(self._sa_table).where(...)
+existing = (await session.execute(select_stmt)).fetchone()
+
+# 3. Route to insert or update
+if existing:
+    return await self.update(record)
+else:
+    return await self.insert(record)
+```
+
+**Why not dialect-specific upsert?**
+- SQLite: `INSERT OR REPLACE`
+- PostgreSQL: `INSERT ... ON CONFLICT`
+- Our approach: SELECT → INSERT/UPDATE
+  - ✅ Database-agnostic
+  - ✅ Simpler logic
+  - ✅ Reuses existing methods
+  - ⚠️ Slightly less efficient (extra query)
+
+### Composite Primary Keys
+
+All CRUD operations handle composite PKs:
+
+**Insert:** Returns tuple from `inserted_primary_key`
+```python
+inserted_pk = (1, 101)  # (order_id, item_id)
+```
+
+**Get/Delete:** Accept tuple as input
+```python
+item = await table[(1, 101)]        # GET
+await table.delete((1, 101))        # DELETE
+```
+
+**Update:** Extract all PK values from record dict
+```python
+# record = {"order_id": 1, "item_id": 101, "quantity": 10}
+for pk_col in pk_cols:
+    pk_values[pk_col.name] = data[pk_col.name]
+```
+
+### xtra() Filtering
+
+The `xtra()` method returns a new Table instance with filters:
+
+```python
+# In Table.xtra()
+return Table(
+    self._name,
+    self._sa_table,      # Same SQLAlchemy table
+    self._engine,        # Same engine
+    self._dataclass_cls, # Same dataclass
+    new_filters          # DIFFERENT filters
+)
+```
+
+**How filters are applied:**
+
+Every SELECT/UPDATE/DELETE adds WHERE conditions:
+```python
+# Applied in all operations
+for col_name, value in self._xtra_filters.items():
+    stmt = stmt.where(self._sa_table.c[col_name] == value)
+```
+
+**INSERT auto-sets filter values:**
+```python
+# In insert(), before executing
+for col_name, expected_value in self._xtra_filters.items():
+    data[col_name] = expected_value  # Auto-set
+```
+
+**Prevents cross-user data access:**
+```python
+user1_posts = posts.xtra(user_id=1)
+
+# Can only see/modify user_id=1 posts
+await user1_posts.delete(post_id)  # Only deletes if user_id=1
+```
+
+### Record Conversion (_to_record and _from_input)
+
+**_from_input():** Converts any input to dict
+```python
+def _from_input(self, record: Any) -> dict:
+    return record_to_dict(record)
+    # Handles: dict (pass-through), dataclass (asdict), object (__dict__)
+```
+
+**_to_record():** Converts Row to dict or dataclass
+```python
+def _to_record(self, row: sa.Row) -> dict | Any:
+    data = dict(row._mapping)
+    if self._dataclass_cls and is_dataclass(self._dataclass_cls):
+        return dict_to_dataclass(data, self._dataclass_cls)
+    return data
+```
+
+**When are dataclasses used?**
+- Only when `_dataclass_cls` is set AND is an actual dataclass
+- Set by `db.create(ActualDataclass)` or `table.dataclass()`
+- Plain annotation classes (not @dataclass) return dicts
+
+### Error Handling with NotFoundError
+
+All operations that expect to find records raise `NotFoundError` when missing:
+
+```python
+# After UPDATE/DELETE
+if result.rowcount == 0:
+    raise NotFoundError(f"Record with PK {pk_value} not found")
+
+# After SELECT
+if row is None:
+    raise NotFoundError(f"No record found matching {kwargs}")
+```
+
+**User code:**
+```python
+try:
+    user = await users[999]
+except NotFoundError:
+    print("User not found")
+```
+
+### Session Management Pattern
+
+All CRUD operations follow this pattern:
+
+```python
+# Create session factory
+session_factory = sessionmaker(
+    self._engine,
+    class_=AsyncSession,
+    expire_on_commit=False  # Keep objects usable after commit
+)
+
+# Use session
+async with session_factory() as session:
+    try:
+        # Execute operations
+        result = await session.execute(stmt)
+        await session.commit()
+        return processed_result
+    except Exception:
+        await session.rollback()
+        raise
+```
+
+**Why this pattern?**
+- ✅ Each operation is atomic
+- ✅ Auto-rollback on errors
+- ✅ No connection leaks
+- ✅ Thread-safe (each operation gets own session)
+
+### Performance Considerations
+
+**Insert:** 2 queries (INSERT + SELECT for complete row)
+- Necessary to get auto-generated values (auto-increment, defaults, triggers)
+
+**Update:** 2 queries (UPDATE + SELECT for updated row)
+- Could optimize to return data directly, but SELECT ensures consistency
+
+**Upsert:** 3 queries (SELECT + INSERT/UPDATE + SELECT)
+- Trade-off: database-agnostic vs performance
+
+**Select:** 1 query
+- Efficient: single SELECT with WHERE/LIMIT
+
+**Delete:** 1 query
+- Efficient: single DELETE with WHERE
+
+**Future optimization opportunities:**
+- RETURNING clause support (PostgreSQL, SQLite 3.35+)
+- Batch operations (insertmany, updatemany)
+- Compiled statement caching
+
+---
+
 ## Key Takeaways
 
 1. **SQLAlchemy Core, Not ORM**: We use Tables and Columns directly, not ORM models
