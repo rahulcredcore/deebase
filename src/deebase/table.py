@@ -5,7 +5,12 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from .column import ColumnAccessor
-from .exceptions import NotFoundError
+from .exceptions import (
+    NotFoundError,
+    IntegrityError as DeeBaseIntegrityError,
+    ValidationError,
+    SchemaError,
+)
 from .dataclass_utils import record_to_dict, dict_to_dataclass, make_table_dataclass
 
 
@@ -110,8 +115,10 @@ class Table:
         # Validate xtra filters - ensure inserted record matches filters
         for col_name, expected_value in self._xtra_filters.items():
             if col_name in data and data[col_name] != expected_value:
-                raise NotFoundError(
-                    f"Cannot insert: {col_name}={data[col_name]} violates filter {col_name}={expected_value}"
+                raise ValidationError(
+                    f"Cannot insert into table '{self._name}': {col_name}={data[col_name]} violates filter {col_name}={expected_value}",
+                    field=col_name,
+                    value=data[col_name]
                 )
             # If not provided, set the xtra filter value
             data[col_name] = expected_value
@@ -155,9 +162,28 @@ class Table:
 
                 return self._to_record(row)
 
-            except Exception:
+            except sa.exc.IntegrityError as e:
                 await session.rollback()
-                raise
+                # Extract constraint name if available
+                constraint = None
+                error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+                if 'UNIQUE constraint' in error_msg or 'unique constraint' in error_msg.lower():
+                    constraint = 'unique'
+                elif 'PRIMARY KEY constraint' in error_msg or 'primary key' in error_msg.lower():
+                    constraint = 'primary_key'
+                elif 'FOREIGN KEY constraint' in error_msg or 'foreign key' in error_msg.lower():
+                    constraint = 'foreign_key'
+
+                raise DeeBaseIntegrityError(
+                    f"Failed to insert into table '{self._name}': {error_msg}",
+                    constraint=constraint,
+                    table_name=self._name
+                ) from e
+            except Exception as e:
+                await session.rollback()
+                raise RuntimeError(
+                    f"Unexpected error inserting into table '{self._name}': {str(e)}"
+                ) from e
 
     async def update(self, record: dict | Any) -> dict | Any:
         """Update a record in the table.
@@ -182,14 +208,19 @@ class Table:
         pk_values = {}
         for pk_col in pk_cols:
             if pk_col.name not in data:
-                raise ValueError(f"Primary key column '{pk_col.name}' missing from record")
+                raise ValidationError(
+                    f"Cannot update table '{self._name}': primary key column '{pk_col.name}' missing from record",
+                    field=pk_col.name
+                )
             pk_values[pk_col.name] = data[pk_col.name]
 
         # Validate xtra filters
         for col_name, expected_value in self._xtra_filters.items():
             if col_name in data and data[col_name] != expected_value:
-                raise NotFoundError(
-                    f"Cannot update: {col_name}={data[col_name]} violates filter {col_name}={expected_value}"
+                raise ValidationError(
+                    f"Cannot update table '{self._name}': {col_name}={data[col_name]} violates filter {col_name}={expected_value}",
+                    field=col_name,
+                    value=data[col_name]
                 )
 
         # Create session factory
@@ -221,7 +252,9 @@ class Table:
                 # Check if any row was updated
                 if result.rowcount == 0:
                     raise NotFoundError(
-                        f"Record with PK {pk_values} not found or violates xtra filters"
+                        f"Record with PK {pk_values} not found in table '{self._name}' or violates xtra filters",
+                        table_name=self._name,
+                        filters={**pk_values, **self._xtra_filters}
                     )
 
                 # Fetch and return the updated record
@@ -233,16 +266,29 @@ class Table:
                 row = fetch_result.fetchone()
 
                 if row is None:
-                    raise NotFoundError(f"Record with PK {pk_values} not found after update")
+                    raise NotFoundError(
+                        f"Record with PK {pk_values} not found in table '{self._name}' after update",
+                        table_name=self._name,
+                        filters=pk_values
+                    )
 
                 return self._to_record(row)
 
-            except NotFoundError:
+            except (NotFoundError, ValidationError):
                 await session.rollback()
                 raise
-            except Exception:
+            except sa.exc.IntegrityError as e:
                 await session.rollback()
-                raise
+                error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+                raise DeeBaseIntegrityError(
+                    f"Failed to update table '{self._name}': {error_msg}",
+                    table_name=self._name
+                ) from e
+            except Exception as e:
+                await session.rollback()
+                raise RuntimeError(
+                    f"Unexpected error updating table '{self._name}': {str(e)}"
+                ) from e
 
     async def upsert(self, record: dict | Any) -> dict | Any:
         """Insert or update a record based on primary key existence.
@@ -327,12 +373,17 @@ class Table:
             pk_values = (pk_value,)
         else:
             if not isinstance(pk_value, (tuple, list)):
-                raise ValueError(f"Composite primary key requires tuple/list, got {type(pk_value)}")
+                raise ValidationError(
+                    f"Composite primary key for table '{self._name}' requires tuple/list, got {type(pk_value).__name__}",
+                    field='primary_key',
+                    value=pk_value
+                )
             pk_values = tuple(pk_value)
 
         if len(pk_values) != len(pk_cols):
-            raise ValueError(
-                f"Primary key mismatch: expected {len(pk_cols)} values, got {len(pk_values)}"
+            raise ValidationError(
+                f"Primary key mismatch for table '{self._name}': expected {len(pk_cols)} values, got {len(pk_values)}",
+                field='primary_key'
             )
 
         # Create session factory
@@ -360,15 +411,19 @@ class Table:
                 # Check if any row was deleted
                 if result.rowcount == 0:
                     raise NotFoundError(
-                        f"Record with PK {pk_value} not found or violates xtra filters"
+                        f"Record with PK {pk_value} not found in table '{self._name}' or violates xtra filters",
+                        table_name=self._name,
+                        filters={**dict(zip([col.name for col in pk_cols], pk_values)), **self._xtra_filters}
                     )
 
-            except NotFoundError:
+            except (NotFoundError, ValidationError):
                 await session.rollback()
                 raise
-            except Exception:
+            except Exception as e:
                 await session.rollback()
-                raise
+                raise RuntimeError(
+                    f"Unexpected error deleting from table '{self._name}': {str(e)}"
+                ) from e
 
     async def lookup(self, **kwargs) -> dict | Any:
         """Find a single record matching the given criteria.
@@ -386,7 +441,7 @@ class Table:
         from sqlalchemy.orm import sessionmaker
 
         if not kwargs:
-            raise ValueError("lookup() requires at least one filter argument")
+            raise ValidationError("lookup() requires at least one filter argument")
 
         # Create session factory
         session_factory = sessionmaker(
@@ -404,7 +459,11 @@ class Table:
                 # Apply lookup filters
                 for col_name, value in kwargs.items():
                     if col_name not in self._sa_table.c:
-                        raise ValueError(f"Column '{col_name}' not found in table")
+                        raise SchemaError(
+                            f"Column '{col_name}' not found in table '{self._name}'",
+                            table_name=self._name,
+                            column_name=col_name
+                        )
                     stmt = stmt.where(self._sa_table.c[col_name] == value)
 
                 # Apply xtra filters
@@ -417,16 +476,22 @@ class Table:
                 await session.commit()
 
                 if row is None:
-                    raise NotFoundError(f"No record found matching {kwargs}")
+                    raise NotFoundError(
+                        f"No record found in table '{self._name}' matching {kwargs}",
+                        table_name=self._name,
+                        filters={**kwargs, **self._xtra_filters}
+                    )
 
                 return self._to_record(row)
 
-            except NotFoundError:
+            except (NotFoundError, ValidationError, SchemaError):
                 await session.rollback()
                 raise
-            except Exception:
+            except Exception as e:
                 await session.rollback()
-                raise
+                raise RuntimeError(
+                    f"Unexpected error in lookup on table '{self._name}': {str(e)}"
+                ) from e
 
     async def __call__(
         self,
@@ -519,12 +584,17 @@ class Table:
             pk_values = (pk_value,)
         else:
             if not isinstance(pk_value, (tuple, list)):
-                raise ValueError(f"Composite primary key requires tuple/list, got {type(pk_value)}")
+                raise ValidationError(
+                    f"Composite primary key for table '{self._name}' requires tuple/list, got {type(pk_value).__name__}",
+                    field='primary_key',
+                    value=pk_value
+                )
             pk_values = tuple(pk_value)
 
         if len(pk_values) != len(pk_cols):
-            raise ValueError(
-                f"Primary key mismatch: expected {len(pk_cols)} values, got {len(pk_values)}"
+            raise ValidationError(
+                f"Primary key mismatch for table '{self._name}': expected {len(pk_cols)} values, got {len(pk_values)}",
+                field='primary_key'
             )
 
         # Create session factory
@@ -552,16 +622,22 @@ class Table:
                 await session.commit()
 
                 if row is None:
-                    raise NotFoundError(f"Record with PK {pk_value} not found")
+                    raise NotFoundError(
+                        f"Record with PK {pk_value} not found in table '{self._name}'",
+                        table_name=self._name,
+                        filters=dict(zip([col.name for col in pk_cols], pk_values))
+                    )
 
                 return self._to_record(row)
 
-            except NotFoundError:
+            except (NotFoundError, ValidationError):
                 await session.rollback()
                 raise
-            except Exception:
+            except Exception as e:
                 await session.rollback()
-                raise
+                raise RuntimeError(
+                    f"Unexpected error fetching from table '{self._name}': {str(e)}"
+                ) from e
 
     async def drop(self) -> None:
         """Drop the table from the database."""

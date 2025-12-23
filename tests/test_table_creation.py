@@ -3,7 +3,7 @@
 import pytest
 from typing import Optional
 from datetime import datetime
-from deebase import Database, Text
+from deebase import Database, Text, ValidationError, SchemaError
 
 
 class TestTableCreation:
@@ -128,7 +128,7 @@ class TestTableCreation:
         class Empty:
             pass
 
-        with pytest.raises(ValueError, match="has no type annotations"):
+        with pytest.raises(ValidationError, match="has no type annotations"):
             await db.create(Empty)
 
     @pytest.mark.asyncio
@@ -138,7 +138,7 @@ class TestTableCreation:
             id: int
             name: str
 
-        with pytest.raises(ValueError, match="Primary key column 'user_id' not found"):
+        with pytest.raises(SchemaError, match="Primary key column 'user_id' not found"):
             await db.create(User, pk='user_id')
 
     @pytest.mark.asyncio

@@ -11,7 +11,7 @@ This example shows a realistic workflow combining all phases:
 import asyncio
 from typing import Optional
 from datetime import datetime
-from deebase import Database, Text
+from deebase import Database, Text, NotFoundError, IntegrityError, ValidationError
 
 
 async def main():
@@ -152,8 +152,39 @@ async def main():
     limited = await posts(limit=1)
     print(f"   • Selected with limit(1): {limited[0]['title']}\n")
 
+    # Exception handling (Phase 8)
+    print("8. Demonstrating exception handling...")
+
+    # NotFoundError handling
+    try:
+        await posts[999]
+    except NotFoundError as e:
+        print(f"   • NotFoundError: {e.message}")
+        print(f"     Table: {e.table_name}, Filters: {e.filters}")
+
+    # Add unique constraint for IntegrityError demo
+    await db.q("CREATE UNIQUE INDEX idx_author_email ON author(email)")
+
+    # IntegrityError handling
+    try:
+        await authors.insert({
+            "name": "Alice Smith Clone",
+            "email": "alice@example.com"  # Duplicate email
+        })
+    except IntegrityError as e:
+        print(f"   • IntegrityError: Duplicate email detected")
+        print(f"     Constraint: {e.constraint}, Table: {e.table_name}")
+
+    # ValidationError handling
+    try:
+        await posts.update({"title": "Missing PK"})  # No ID field
+    except ValidationError as e:
+        print(f"   • ValidationError: {e.message}")
+        print(f"     Field: {e.field}")
+    print()
+
     # Dataclass support (Phase 4)
-    print("8. Enabling dataclass mode...")
+    print("9. Enabling dataclass mode...")
 
     # Enable dataclass mode for type-safe operations
     PostDC = posts.dataclass()
@@ -169,7 +200,7 @@ async def main():
     print()
 
     # Statistics (works with both dicts and dataclasses)
-    print("9. Blog statistics...")
+    print("10. Blog statistics...")
     all_posts = await posts()
     all_authors = await authors()
     # Works with dataclass instances - can access .view_count attribute
@@ -182,7 +213,7 @@ async def main():
     print(f"   Total authors: {len(all_authors)}\n")
 
     # Views support (Phase 7)
-    print("10. Creating and querying views...")
+    print("11. Creating and querying views...")
 
     # Create view for popular posts
     popular_posts = await db.create_view(
@@ -216,7 +247,7 @@ async def main():
     print()
 
     # Clean up
-    print("11. Cleaning up...")
+    print("12. Cleaning up...")
     await popular_posts.drop()
     await posts_with_authors.drop()
     print("   ✓ Dropped views")

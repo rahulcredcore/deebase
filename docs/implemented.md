@@ -1579,6 +1579,494 @@ results = await view()
 
 ---
 
+## Phase 8: Polish & Utilities ✅ COMPLETE
+
+Phase 8 focuses on production-ready error handling, code generation utilities, and comprehensive documentation.
+
+### Enhanced Exception System
+
+DeeBase now has a comprehensive exception hierarchy for better error handling:
+
+```python
+from deebase import (
+    DeeBaseError,          # Base exception
+    NotFoundError,         # Record not found
+    IntegrityError,        # Constraint violations
+    ConnectionError,       # Database connection issues
+    InvalidOperationError, # Invalid operations (e.g., writing to views)
+    ValidationError,       # Data validation failures
+    SchemaError,           # Schema-related errors
+)
+```
+
+#### Exception Attributes
+
+All exceptions include rich context:
+
+```python
+try:
+    user = await users[999]
+except NotFoundError as e:
+    print(e.message)      # "Record with PK 999 not found in table 'user'"
+    print(e.table_name)   # "user"
+    print(e.filters)      # {'id': 999}
+```
+
+#### NotFoundError
+
+Raised when a query returns no results.
+
+**Attributes:**
+- `message` (str): Error message
+- `table_name` (str): Table name
+- `filters` (dict): Filters that were applied
+
+**Example:**
+```python
+from deebase import NotFoundError
+
+try:
+    user = await users.lookup(email="unknown@example.com")
+except NotFoundError as e:
+    print(f"Not found in {e.table_name}")
+    print(f"Filters: {e.filters}")
+    # Not found in user
+    # Filters: {'email': 'unknown@example.com'}
+```
+
+#### IntegrityError
+
+Raised when database constraints are violated (unique, foreign key, primary key).
+
+**Attributes:**
+- `message` (str): Error message
+- `constraint` (str): Constraint type ('unique', 'primary_key', 'foreign_key')
+- `table_name` (str): Table name
+
+**Example:**
+```python
+from deebase import IntegrityError
+
+class User:
+    id: int
+    email: str
+
+users = await db.create(User, pk='id')
+
+# Create unique constraint
+await db.q("CREATE UNIQUE INDEX idx_email ON user(email)")
+
+try:
+    await users.insert({"id": 1, "email": "alice@example.com"})
+    await users.insert({"id": 2, "email": "alice@example.com"})  # Duplicate!
+except IntegrityError as e:
+    print(f"Constraint {e.constraint} violated in {e.table_name}")
+    # Constraint unique violated in user
+```
+
+#### ValidationError
+
+Raised when input validation fails.
+
+**Attributes:**
+- `message` (str): Error message
+- `field` (str): Field name that failed validation
+- `value`: Invalid value
+
+**Example:**
+```python
+from deebase import ValidationError
+
+try:
+    # Missing primary key
+    await users.update({"name": "Alice"})
+except ValidationError as e:
+    print(f"Invalid {e.field}: {e.value}")
+    # Invalid id: None
+
+# xtra filter violations
+admin_users = users.xtra(role="admin")
+try:
+    await admin_users.insert({"role": "user", "name": "Bob"})
+except ValidationError as e:
+    print(e.message)
+    # Cannot insert into table 'user': role=user violates filter role=admin
+```
+
+#### SchemaError
+
+Raised for schema-related errors (column not found, table not found).
+
+**Attributes:**
+- `message` (str): Error message
+- `table_name` (str): Table name
+- `column_name` (str): Column name
+
+**Example:**
+```python
+from deebase import SchemaError
+
+try:
+    await users.lookup(unknown_column="value")
+except SchemaError as e:
+    print(f"Column {e.column_name} not found in {e.table_name}")
+    # Column unknown_column not found in user
+
+# Invalid primary key specification
+class Product:
+    id: int
+    name: str
+
+try:
+    await db.create(Product, pk='product_id')  # Wrong PK name
+except SchemaError as e:
+    print(e.message)
+    # Primary key column 'product_id' not found in class Product annotations
+```
+
+#### ConnectionError
+
+Raised when database connection fails.
+
+**Attributes:**
+- `message` (str): Error message
+- `database_url` (str): Sanitized database URL (password removed)
+
+**Example:**
+```python
+from deebase import ConnectionError
+
+try:
+    db = Database("sqlite+aiosqlite:///nonexistent/path/db.db")
+    await db.q("SELECT 1")
+except ConnectionError as e:
+    print(f"Failed to connect to {e.database_url}")
+```
+
+#### InvalidOperationError
+
+Raised when an invalid operation is attempted (e.g., writing to a read-only view).
+
+**Attributes:**
+- `message` (str): Error message
+- `operation` (str): Operation name
+- `target` (str): Target object name
+
+**Example:**
+```python
+from deebase import InvalidOperationError
+
+view = await db.create_view("active_users", "SELECT * FROM user WHERE active = 1")
+
+try:
+    await view.insert({"name": "Alice"})
+except InvalidOperationError as e:
+    print(f"Cannot {e.operation} on {e.target}")
+    # Cannot insert on view 'active_users'
+```
+
+### Error Handling Best Practices
+
+```python
+from deebase import (
+    Database,
+    NotFoundError,
+    IntegrityError,
+    ValidationError,
+    SchemaError,
+)
+
+db = Database("sqlite+aiosqlite:///myapp.db")
+
+class User:
+    id: int
+    email: str
+    name: str
+
+users = await db.create(User, pk='id')
+
+# Handle specific exceptions
+async def get_or_create_user(email: str, name: str):
+    try:
+        return await users.lookup(email=email)
+    except NotFoundError:
+        # User doesn't exist, create it
+        try:
+            return await users.insert({"email": email, "name": name})
+        except IntegrityError as e:
+            # Another process created it between lookup and insert
+            print(f"Race condition: {e.message}")
+            return await users.lookup(email=email)
+
+# Validate input before operations
+async def update_user_safe(user_id: int, updates: dict):
+    try:
+        user = await users[user_id]
+    except NotFoundError:
+        return {"error": "User not found"}
+
+    try:
+        user.update(updates)
+        return await users.update(user)
+    except ValidationError as e:
+        return {"error": f"Invalid {e.field}: {e.value}"}
+    except IntegrityError as e:
+        return {"error": f"Constraint violation: {e.constraint}"}
+
+# Handle schema errors gracefully
+async def safe_lookup(**filters):
+    try:
+        return await users.lookup(**filters)
+    except SchemaError as e:
+        print(f"Unknown column: {e.column_name}")
+        return None
+    except NotFoundError:
+        return None
+```
+
+### Dataclass Export Utilities
+
+Phase 8 adds powerful utilities for generating Python code from database schemas.
+
+#### dataclass_src()
+
+Generate Python source code from a dataclass:
+
+```python
+from deebase import Database, dataclass_src
+
+db = Database("sqlite+aiosqlite:///:memory:")
+
+class User:
+    id: int
+    name: str
+    email: str
+    created_at: datetime
+
+users = await db.create(User, pk='id')
+
+# Generate dataclass
+UserDC = users.dataclass()
+
+# Get source code
+src = dataclass_src(UserDC)
+print(src)
+```
+
+**Output:**
+```python
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+
+
+@dataclass
+class User:
+    id: Optional[int] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    created_at: Optional[datetime] = None
+```
+
+#### create_mod()
+
+Export multiple dataclasses to a Python module file:
+
+```python
+from deebase import create_mod
+
+# Generate dataclasses from tables
+UserDC = users.dataclass()
+PostDC = posts.dataclass()
+CommentDC = comments.dataclass()
+
+# Export to models.py
+create_mod(
+    "models.py",
+    UserDC,
+    PostDC,
+    CommentDC,
+    overwrite=True
+)
+```
+
+**Generated models.py:**
+```python
+"""Auto-generated dataclass models from DeeBase."""
+
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+
+
+@dataclass
+class User:
+    id: Optional[int] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+@dataclass
+class Post:
+    id: Optional[int] = None
+    user_id: Optional[int] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+@dataclass
+class Comment:
+    id: Optional[int] = None
+    post_id: Optional[int] = None
+    user_id: Optional[int] = None
+    text: Optional[str] = None
+    created_at: Optional[datetime] = None
+```
+
+#### create_mod_from_tables()
+
+Convenience function to export directly from tables:
+
+```python
+from deebase import create_mod_from_tables
+
+# Connect to existing database
+db = Database("sqlite+aiosqlite:///myapp.db")
+await db.reflect()
+
+# Export all tables to models.py
+create_mod_from_tables(
+    "models.py",
+    db.t.users,
+    db.t.posts,
+    db.t.comments,
+    overwrite=True
+)
+
+# Now you can use the generated models
+# from models import User, Post, Comment
+```
+
+### Complete Example with Error Handling
+
+```python
+from deebase import (
+    Database,
+    NotFoundError,
+    IntegrityError,
+    ValidationError,
+    Text,
+)
+from datetime import datetime
+
+db = Database("sqlite+aiosqlite:///blog.db")
+
+# Define schema
+class User:
+    id: int
+    username: str
+    email: str
+    created_at: datetime
+
+class Post:
+    id: int
+    user_id: int
+    title: str
+    content: Text
+    published: bool
+    created_at: datetime
+
+# Create tables
+users = await db.create(User, pk='id')
+posts = await db.create(Post, pk='id')
+
+# Add unique constraint
+await db.q("CREATE UNIQUE INDEX idx_username ON user(username)")
+await db.q("CREATE UNIQUE INDEX idx_email ON user(email)")
+
+# Safe user creation with error handling
+async def create_user(username: str, email: str):
+    try:
+        user = await users.insert({
+            "username": username,
+            "email": email,
+            "created_at": datetime.now()
+        })
+        print(f"Created user: {user['username']}")
+        return user
+    except IntegrityError as e:
+        if e.constraint == "unique":
+            print(f"Username or email already exists")
+            return None
+    except ValidationError as e:
+        print(f"Invalid {e.field}: {e.value}")
+        return None
+
+# Safe post creation
+async def create_post(user_id: int, title: str, content: str):
+    try:
+        # Verify user exists
+        user = await users[user_id]
+
+        post = await posts.insert({
+            "user_id": user_id,
+            "title": title,
+            "content": content,
+            "published": False,
+            "created_at": datetime.now()
+        })
+        print(f"Created post: {post['title']}")
+        return post
+    except NotFoundError as e:
+        print(f"User {user_id} not found")
+        return None
+
+# Safe query with error handling
+async def get_user_posts(username: str):
+    try:
+        user = await users.lookup(username=username)
+        user_posts = posts.xtra(user_id=user['id'])
+        return await user_posts()
+    except NotFoundError:
+        print(f"User '{username}' not found")
+        return []
+
+# Test it
+alice = await create_user("alice", "alice@example.com")
+if alice:
+    await create_post(alice['id'], "First Post", "Hello, world!")
+
+bob = await create_user("bob", "alice@example.com")  # Duplicate email
+# Output: Username or email already exists
+
+alice_posts = await get_user_posts("alice")
+print(f"Alice has {len(alice_posts)} posts")
+
+await db.close()
+```
+
+### Documentation
+
+Phase 8 includes comprehensive documentation:
+
+#### API Reference
+Complete API documentation for all classes, methods, and utilities:
+- See `docs/api_reference.md`
+
+#### Migration Guide
+Guide for migrating from fastlite to DeeBase:
+- See `docs/migrating_from_fastlite.md`
+
+### Testing
+
+- **161 total tests** (Phases 1-8) - All passing ✅
+- Updated tests to use new exception types
+- No regressions from error handling improvements
+
+---
+
 ## Dependencies
 
 - Python 3.14+
@@ -1596,3 +2084,24 @@ Currently tested with:
 - 🚧 PostgreSQL (via asyncpg) - infrastructure ready, not yet tested
 
 The codebase is designed to be database-agnostic through SQLAlchemy's dialect system.
+
+---
+
+## Summary
+
+**All 8 Phases Complete! 🎉**
+
+DeeBase is now feature-complete with:
+- ✅ **Async/await support** - Modern Python async for FastAPI and other frameworks
+- ✅ **Ergonomic API** - Simple, intuitive operations inspired by fastlite
+- ✅ **Type safety** - Optional dataclass support for IDE autocomplete
+- ✅ **Rich type system** - Text, JSON, datetime, Optional support
+- ✅ **CRUD operations** - Complete database operations (insert, update, upsert, delete, select, lookup)
+- ✅ **Dynamic access** - Access tables with `db.t.tablename` after reflection
+- ✅ **Views support** - Read-only database views
+- ✅ **Comprehensive error handling** - 6 specific exception types with rich context
+- ✅ **Code generation** - Export database schemas as Python dataclasses
+- ✅ **Complete documentation** - API reference, migration guide, examples
+- ✅ **161 passing tests** - Comprehensive test coverage
+
+**Ready for production use!**

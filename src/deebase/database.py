@@ -10,6 +10,11 @@ from .table import Table
 from .view import View
 from .types import python_type_to_sqlalchemy, is_optional
 from .dataclass_utils import extract_annotations
+from .exceptions import (
+    ConnectionError as DeeBaseConnectionError,
+    SchemaError,
+    ValidationError,
+)
 
 
 class Database:
@@ -74,12 +79,28 @@ class Database:
         Returns:
             List of dictionaries representing rows (empty list for DDL/DML)
         """
-        async with self._session() as session:
-            result = await session.execute(sa.text(query))
-            # Check if the result returns rows (SELECT) or not (CREATE, INSERT, etc.)
-            if result.returns_rows:
-                return [dict(row._mapping) for row in result.fetchall()]
-            return []
+        try:
+            async with self._session() as session:
+                result = await session.execute(sa.text(query))
+                # Check if the result returns rows (SELECT) or not (CREATE, INSERT, etc.)
+                if result.returns_rows:
+                    return [dict(row._mapping) for row in result.fetchall()]
+                return []
+        except sa.exc.OperationalError as e:
+            # Connection errors, database not found, etc.
+            error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+            raise DeeBaseConnectionError(
+                f"Database connection error: {error_msg}",
+                database_url=self._url.split('@')[-1] if '@' in self._url else self._url.split(':///')[-1]
+            ) from e
+        except sa.exc.ProgrammingError as e:
+            # SQL syntax errors, table not found, etc.
+            error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+            raise SchemaError(
+                f"SQL error: {error_msg}"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(f"Unexpected error executing query: {str(e)}") from e
 
     async def create(
         self,
@@ -112,7 +133,9 @@ class Database:
         annotations = extract_annotations(cls)
 
         if not annotations:
-            raise ValueError(f"Class {cls.__name__} has no type annotations")
+            raise ValidationError(
+                f"Class {cls.__name__} has no type annotations. Cannot create table without field definitions."
+            )
 
         # Determine primary key(s)
         if pk is None:
@@ -124,7 +147,11 @@ class Database:
         # Verify all pk columns exist in annotations
         for pk_col in pk_list:
             if pk_col not in annotations:
-                raise ValueError(f"Primary key column '{pk_col}' not found in class annotations")
+                raise SchemaError(
+                    f"Primary key column '{pk_col}' not found in class {cls.__name__} annotations",
+                    table_name=cls.__name__.lower(),
+                    column_name=pk_col
+                )
 
         # Build SQLAlchemy columns
         columns = []
