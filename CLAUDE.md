@@ -30,7 +30,8 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
 ✅ **Phase 3 Complete** - CRUD Operations
-🚧 **Phase 4 In Progress** - Dataclass Support
+✅ **Phase 4 Complete** - Dataclass Support
+🚧 **Phase 5 In Progress** - Dynamic Access & Reflection
 
 **Completed:**
 - Database class with async engine and `q()` method
@@ -42,16 +43,17 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - Composite primary keys
 - xtra() filtering
 - Error handling with NotFoundError
-- 105 passing tests (78 + 27 new)
+- Dataclass support (`.dataclass()`, `@dataclass`, type-safe operations)
+- 125 passing tests (105 + 20 new)
 
-**Current Focus:** Next phases will add dataclass support, reflection, and views
+**Current Focus:** Next phase will add dynamic table access and reflection (db.t.users)
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
 
 ## Basic Usage
 
-### Working Now (Phases 1, 2 & 3)
+### Working Now (Phases 1-4)
 
 ```python
 from deebase import Database, Text, NotFoundError
@@ -120,6 +122,25 @@ except NotFoundError:
 user_articles = articles.xtra(author_id=1)
 my_articles = await user_articles()  # Only author_id=1
 
+# Dataclass support (Phase 4)
+ArticleDC = articles.dataclass()  # Generate dataclass from table
+
+# Insert with dataclass instance
+new_article = await articles.insert(ArticleDC(
+    id=None,
+    title="Another Article",
+    content="More content...",
+    metadata={"author": "Bob"},
+    created_at=datetime.now()
+))
+# new_article is an ArticleDC instance - type-safe field access!
+print(new_article.title)  # IDE autocomplete works
+
+# All operations return dataclass instances
+all_articles = await articles()
+for a in all_articles:
+    print(a.title)  # Field access, not dict['key']
+
 # View schema
 print(articles.schema)
 
@@ -131,27 +152,9 @@ sa_table = articles.sa_table
 await articles.drop()
 ```
 
-### Coming in Phase 4+
+### Coming in Phase 5+
 
 ```python
-# Phase 4: Enhanced Dataclass Support
-from dataclasses import dataclass
-
-@dataclass
-class Article:
-    id: int
-    title: str
-    content: Text
-
-articles = await db.create(Article, pk='id')
-
-# With @dataclass, all operations return dataclass instances
-article = await articles.insert(Article(id=None, title="Test", content="..."))
-# article is an Article dataclass instance
-
-# Or explicitly enable dataclass mode
-Article = articles.dataclass()
-
 # Phase 5: Dynamic Access & Reflection
 # Access existing tables without defining classes
 users = db.t.users              # Reflect from database
@@ -223,7 +226,15 @@ src/deebase/
 - ✅ Error handling with NotFoundError
 - ✅ 27 new tests (105 total passing)
 
-**Phase 4+:** Enhanced dataclass support, reflection, views, polish
+**Phase 4: Dataclass Support** ✅ COMPLETE
+- ✅ `table.dataclass()` - Generate dataclass from table metadata
+- ✅ CRUD operations with dataclass instances
+- ✅ Support for actual `@dataclass` decorated classes
+- ✅ Mix dict and dataclass inputs seamlessly
+- ✅ Type-safe operations with IDE autocomplete
+- ✅ 20 new tests (125 total passing)
+
+**Phase 5+:** Dynamic access & reflection, views, polish
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 8-phase roadmap.
 See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
@@ -242,7 +253,10 @@ uv run examples/phase2_table_creation.py
 # Phase 3: CRUD operations
 uv run examples/phase3_crud_operations.py
 
-# Complete example: Blog database with full CRUD
+# Phase 4: Dataclass support
+uv run examples/phase4_dataclass_support.py
+
+# Complete example: Blog database with full features
 uv run examples/complete_example.py
 ```
 
@@ -251,6 +265,7 @@ All examples use in-memory databases and demonstrate:
 - Raw SQL execution
 - Table creation with rich types (str, Text, dict/JSON)
 - Full CRUD operations (insert, update, upsert, delete, select, lookup)
+- Dataclass support for type-safe operations
 - Composite primary keys
 - xtra() filtering
 - Error handling

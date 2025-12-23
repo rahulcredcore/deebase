@@ -479,26 +479,96 @@ admins = await admin_users()  # Only admin users
 - Composite PK support via tuple handling
 - Record conversion via _to_record() and _from_input() helpers
 
-### Phase 4: Dataclass Support ⬅️ CURRENT PHASE
+### Phase 4: Dataclass Support ✅ COMPLETE
 
-1. **Dataclass generation**
+**Status:** All items completed
+
+1. **✅ Dataclass generation**
    - `Table.dataclass()` implementation
-   - Generate from SQLAlchemy table metadata
-   - Make fields Optional
+   - Generate from SQLAlchemy table metadata with `make_table_dataclass()`
+   - Make fields Optional for auto-increment PKs
    - Cache on Table instance
+   - Handle both plain classes and actual `@dataclass`
 
-2. **Update CRUD to use dataclasses**
-   - Check `_dataclass_cls` in each method
-   - Accept dataclass instances as input
+2. **✅ CRUD operations use dataclasses**
+   - `_to_record()` checks `_dataclass_cls` and `is_dataclass()`
+   - Accept dataclass instances as input via `_from_input()`
    - Return dataclass instances when configured
-   - Maintain dict support
+   - Maintain full dict support (seamless mixing)
 
-3. **Tests**
-   - Create table with class → verify dataclass behavior
-   - Call `.dataclass()` → verify switching from dicts to dataclasses
-   - Mix dict and dataclass inputs
+3. **✅ Tests**
+   - Generate dataclass with `.dataclass()` → 3 tests
+   - CRUD operations return dataclass instances → 6 tests
+   - Create with actual `@dataclass` → 2 tests
+   - Mix dict and dataclass inputs → 3 tests
+   - Rich types with dataclasses → 3 tests
+   - Before/after `.dataclass()` behavior → 3 tests
+   - **20 new tests, all passing**
 
-### Phase 5: Dynamic Access & Reflection
+**Deliverables:**
+- Fully functional `.dataclass()` method
+- All CRUD operations support dataclass instances (input and output)
+- Support for actual `@dataclass` decorated classes
+- Seamless mixing of dicts and dataclasses
+- Type-safe operations with IDE autocomplete
+- 125 total passing tests (105 + 20 new)
+- Documentation: Full Phase 4 section in implemented.md and how-it-works.md
+- Examples: phase4_dataclass_support.py and updated complete_example.py
+
+**What Works Now:**
+```python
+class User:
+    id: int
+    name: str
+    email: str
+
+users = await db.create(User, pk='id')
+
+# Before .dataclass() - returns dicts
+user1 = await users.insert({"name": "Alice", "email": "alice@example.com"})
+print(type(user1))  # <class 'dict'>
+
+# Generate dataclass
+UserDC = users.dataclass()
+
+# After .dataclass() - returns dataclass instances
+user2 = await users.insert({"name": "Bob", "email": "bob@example.com"})
+print(type(user2))  # <class 'deebase.dataclass_utils.User'>
+print(user2.name)   # 'Bob' - field access!
+
+# Insert with dataclass instance
+user3 = await users.insert(UserDC(id=None, name="Charlie", email="charlie@example.com"))
+
+# All CRUD operations work with dataclasses
+all_users = await users()  # Returns list of UserDC instances
+for user in all_users:
+    print(user.name)  # Type-safe field access
+
+# Or use actual @dataclass
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class Product:
+    id: Optional[int] = None
+    name: str = ""
+    price: float = 0.0
+
+products = await db.create(Product, pk='id')
+# Automatically uses Product dataclass - no need to call .dataclass()
+
+widget = await products.insert(Product(name="Widget", price=9.99))
+print(isinstance(widget, Product))  # True
+```
+
+**Key Implementation Details:**
+- `.dataclass()` checks `is_dataclass()` before generating
+- `_to_record()` only converts to dataclass if `_dataclass_cls` is actual dataclass
+- `_from_input()` accepts any input (dict, dataclass, object) via `record_to_dict()`
+- Generated dataclasses have Optional fields (default None) for auto-increment
+- Seamless mixing of dicts and dataclasses in all operations
+
+### Phase 5: Dynamic Access & Reflection ⬅️ CURRENT PHASE
 
 **Note:** ColumnAccessor was already implemented in Phase 1
 

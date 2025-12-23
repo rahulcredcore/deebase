@@ -152,11 +152,28 @@ async def main():
     limited = await posts(limit=1)
     print(f"   • Selected with limit(1): {limited[0]['title']}\n")
 
-    # Statistics
-    print("8. Blog statistics...")
+    # Dataclass support (Phase 4)
+    print("8. Enabling dataclass mode...")
+
+    # Enable dataclass mode for type-safe operations
+    PostDC = posts.dataclass()
+    AuthorDC = authors.dataclass()
+    print(f"   • Generated Post dataclass: {PostDC.__name__}")
+    print(f"   • Generated Author dataclass: {AuthorDC.__name__}")
+
+    # Now all operations return dataclass instances
+    all_posts_dc = await posts()
+    print(f"   • Fetched {len(all_posts_dc)} posts as dataclass instances")
+    for post in all_posts_dc:
+        print(f"     - {post.title}: {post.view_count} views")
+    print()
+
+    # Statistics (works with both dicts and dataclasses)
+    print("9. Blog statistics...")
     all_posts = await posts()
     all_authors = await authors()
-    total_views = sum(p['view_count'] for p in all_posts)
+    # Works with dataclass instances - can access .view_count attribute
+    total_views = sum(p.view_count for p in all_posts)
     avg_views = total_views / len(all_posts) if all_posts else 0
 
     print(f"   Total posts: {len(all_posts)}")
@@ -165,7 +182,7 @@ async def main():
     print(f"   Total authors: {len(all_authors)}\n")
 
     # Clean up
-    print("9. Cleaning up...")
+    print("10. Cleaning up...")
     await posts.drop()
     await authors.drop()
     await db.close()

@@ -1205,6 +1205,187 @@ async with session_factory() as session:
 
 ---
 
+## 10. Dataclass Support (Phase 4)
+
+Phase 4 adds dataclass support for type-safe database operations. The key is the `.dataclass()` method which generates a dataclass from table metadata or returns an existing one.
+
+### The .dataclass() Method
+
+**What it does:**
+Generates a dataclass from SQLAlchemy table metadata using `make_table_dataclass()`.
+
+**Implementation:**
+```python
+def dataclass(self) -> type:
+    from dataclasses import is_dataclass
+
+    # If _dataclass_cls is not set, or is set but not an actual dataclass,
+    # generate a new dataclass from the table metadata
+    if self._dataclass_cls is None or not is_dataclass(self._dataclass_cls):
+        self._dataclass_cls = make_table_dataclass(self._name, self._sa_table)
+    return self._dataclass_cls
+```
+
+**Key logic:**
+1. Check if `_dataclass_cls` exists and is an actual `@dataclass`
+2. If not, generate new dataclass using `make_table_dataclass()`
+3. Cache the generated dataclass on the Table instance
+4. Return the dataclass type
+
+**Why the `is_dataclass()` check?**
+When `db.create(User)` is called with a plain annotation class:
+- `_dataclass_cls` is set to `User` (plain class, not `@dataclass`)
+- Later calling `.dataclass()` needs to generate a real dataclass
+- Without the check, it would return the plain class
+
+### make_table_dataclass()
+
+**Purpose:** Generate a dataclass from SQLAlchemy Table metadata
+
+**Implementation:**
+```python
+def make_table_dataclass(table_name: str, sa_table: sa.Table) -> type:
+    # Map SQLAlchemy types back to Python types
+    field_definitions = []
+
+    for column in sa_table.columns:
+        python_type = sqlalchemy_type_to_python(column.type)
+
+        # Make all fields Optional (default to None) to handle auto-generated values
+        field_definitions.append((column.name, python_type | None, None))
+
+    # Create the dataclass
+    return make_dataclass(
+        table_name.capitalize(),
+        field_definitions,
+        frozen=False
+    )
+```
+
+**Key decisions:**
+- All fields are `Optional` (with `None` default) to handle auto-increment PKs
+- Uses Python's `make_dataclass()` for dynamic generation
+- Field types reverse-mapped from SQLAlchemy types
+
+**Type reverse-mapping:**
+```python
+sa.Integer → int
+sa.String → str
+sa.Text → str
+sa.Float → float
+sa.Boolean → bool
+sa.JSON → dict
+sa.DateTime → datetime
+```
+
+### How CRUD Operations Use Dataclasses
+
+**_to_record() - Output conversion:**
+```python
+def _to_record(self, row: sa.Row) -> dict | Any:
+    from dataclasses import is_dataclass
+
+    data = dict(row._mapping)
+    # Only convert to dataclass if the class is actually a dataclass
+    if self._dataclass_cls and is_dataclass(self._dataclass_cls):
+        return dict_to_dataclass(data, self._dataclass_cls)
+    return data
+```
+
+**Flow:**
+```
+SQLAlchemy Row
+   ↓
+row._mapping → dict
+   ↓
+is_dataclass(_dataclass_cls)?
+   ├─ Yes → dict_to_dataclass() → dataclass instance
+   └─ No  → return dict
+```
+
+**_from_input() - Input conversion:**
+```python
+def _from_input(self, record: Any) -> dict:
+    return record_to_dict(record)
+    # Handles: dict (pass-through), dataclass (asdict), object (__dict__)
+```
+
+**Supported inputs:**
+- `dict` → pass through
+- `@dataclass` instance → `asdict()` → dict
+- Plain object → `__dict__` → dict
+
+### Using @dataclass with db.create()
+
+```python
+@dataclass
+class User:
+    id: Optional[int] = None
+    name: str = ""
+    email: str = ""
+
+users = await db.create(User, pk='id')
+# _dataclass_cls = User (actual @dataclass)
+# is_dataclass(User) = True
+```
+
+**Flow:**
+1. `db.create(User)` sets `_dataclass_cls = User`
+2. `User` is an actual `@dataclass` (decorated)
+3. `_to_record()` checks `is_dataclass(User)` → True
+4. All operations return `User` instances automatically
+5. Calling `.dataclass()` returns `User` (already a dataclass)
+
+### Using Plain Class with db.create()
+
+```python
+class User:
+    id: int
+    name: str
+    email: str
+
+users = await db.create(User, pk='id')
+# _dataclass_cls = User (plain annotation class)
+# is_dataclass(User) = False
+```
+
+**Flow without `.dataclass()`:**
+1. `db.create(User)` sets `_dataclass_cls = User`
+2. `User` is NOT a `@dataclass`
+3. `_to_record()` checks `is_dataclass(User)` → False
+4. Operations return dicts
+
+**Flow after `.dataclass()`:**
+1. Call `users.dataclass()`
+2. Check `is_dataclass(User)` → False
+3. Generate new dataclass via `make_table_dataclass()`
+4. Replace `_dataclass_cls` with generated dataclass
+5. All subsequent operations return dataclass instances
+
+### Benefits of This Design
+
+**Flexibility:**
+- Start with dicts (simple, no ceremony)
+- Opt-in to dataclasses when needed (type safety)
+- Supports both `@dataclass` and plain classes
+
+**Type Safety:**
+- IDE autocomplete on dataclass fields
+- Static type checking with mypy/pyright
+- Runtime field validation
+
+**Ergonomics:**
+- Single method call (`.dataclass()`) enables type safety
+- Works with existing code (can mix dicts and dataclasses)
+- Generated dataclasses handle auto-increment PKs
+
+**Performance:**
+- Dataclass generation happens once (cached)
+- `is_dataclass()` check is O(1)
+- No overhead when using dicts
+
+---
+
 ## Key Takeaways
 
 1. **SQLAlchemy Core, Not ORM**: We use Tables and Columns directly, not ORM models

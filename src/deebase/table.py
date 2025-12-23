@@ -64,7 +64,11 @@ class Table:
         Returns:
             The dataclass type associated with this table
         """
-        if self._dataclass_cls is None:
+        from dataclasses import is_dataclass
+
+        # If _dataclass_cls is not set, or is set but not an actual dataclass,
+        # generate a new dataclass from the table metadata
+        if self._dataclass_cls is None or not is_dataclass(self._dataclass_cls):
             self._dataclass_cls = make_table_dataclass(self._name, self._sa_table)
         return self._dataclass_cls
 

@@ -16,6 +16,9 @@ uv run examples/phase2_table_creation.py
 # Run Phase 3 example (CRUD operations)
 uv run examples/phase3_crud_operations.py
 
+# Run Phase 4 example (dataclass support)
+uv run examples/phase4_dataclass_support.py
+
 # Run complete example (combined features)
 uv run examples/complete_example.py
 ```
@@ -88,14 +91,34 @@ Demonstrates Phase 3 CRUD features:
 - Composite primary keys with tuples
 - Rich type handling (Text, dict/JSON, datetime)
 
+### phase4_dataclass_support.py
+
+Demonstrates Phase 4 dataclass features:
+- Generating dataclasses from table metadata
+- CRUD operations with dataclass instances
+- Using actual @dataclass decorated classes
+- Mixing dict and dataclass inputs
+- Type-safe database operations
+- Rich types with dataclasses
+
+**Topics covered:**
+- `table.dataclass()` - Generate dataclass from table
+- Insert/update with dataclass instances
+- Using `@dataclass` decorator with `db.create()`
+- Type safety and IDE autocomplete
+- Dataclass field access (`.name`, `.email`, etc.)
+- Before/after `.dataclass()` behavior
+- Mixing dict and dataclass in operations
+
 ### complete_example.py
 
-A realistic workflow combining all phases (1, 2, 3):
+A realistic workflow combining all phases (1, 2, 3, 4):
 - Defines a blog database schema
 - Creates tables from Python classes
 - Populates data with CRUD operations
 - Queries with raw SQL and JOINs
 - Demonstrates CRUD operations
+- Enables dataclass mode for type-safe operations
 - Shows schema inspection
 - Demonstrates practical usage patterns
 

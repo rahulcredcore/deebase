@@ -756,6 +756,298 @@ except NotFoundError as e:
 
 ---
 
+## Phase 4: Dataclass Support ✅ COMPLETE
+
+Phase 4 adds full dataclass support for type-safe database operations:
+- ✨ Generate dataclasses from table metadata with `.dataclass()`
+- ✨ CRUD operations with dataclass instances
+- ✨ Support for actual `@dataclass` decorated classes
+- ✨ Mix dict and dataclass inputs seamlessly
+- ✨ IDE autocomplete and type checking
+- ✨ Optional field generation for auto-increment PKs
+
+### Generate Dataclass from Table
+
+```python
+from deebase import Database
+
+db = Database("sqlite+aiosqlite:///myapp.db")
+
+# Create table with plain class (not @dataclass)
+class User:
+    id: int
+    name: str
+    email: str
+    age: int
+
+users = await db.create(User, pk='id')
+
+# Before calling .dataclass() - operations return dicts
+user_dict = await users.insert({"name": "Alice", "email": "alice@example.com", "age": 30})
+print(type(user_dict))  # <class 'dict'>
+
+# Generate dataclass from table metadata
+UserDC = users.dataclass()
+print(UserDC)  # <class 'deebase.dataclass_utils.User'>
+
+# After calling .dataclass() - operations return dataclass instances
+user_dc = await users.insert({"name": "Bob", "email": "bob@example.com", "age": 25})
+print(type(user_dc))  # <class 'deebase.dataclass_utils.User'>
+print(user_dc.name)   # 'Bob' - field access works!
+```
+
+### CRUD with Dataclass Instances
+
+```python
+# Enable dataclass mode
+UserDC = users.dataclass()
+
+# INSERT with dataclass instance
+alice = await users.insert(UserDC(id=None, name="Alice", email="alice@example.com", age=30))
+print(alice)  # User(id=1, name='Alice', email='alice@example.com', age=30)
+
+# INSERT with dict still works
+bob = await users.insert({"name": "Bob", "email": "bob@example.com", "age": 25})
+print(bob)  # User(id=2, name='Bob', email='bob@example.com', age=25)
+
+# SELECT returns dataclass instances
+all_users = await users()
+for user in all_users:
+    print(f"{user.name}: {user.age} years old")  # Field access!
+
+# GET by PK returns dataclass
+user = await users[1]
+print(user.name)  # 'Alice'
+
+# LOOKUP returns dataclass
+found = await users.lookup(email="bob@example.com")
+print(found.name)  # 'Bob'
+
+# UPDATE with dataclass instance
+alice.age = 31
+updated = await users.update(alice)
+print(updated.age)  # 31
+
+# UPDATE with dict still works
+await users.update({"id": 2, "name": "Bob", "email": "bob@example.com", "age": 26})
+```
+
+### Using Actual @dataclass
+
+```python
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class Product:
+    id: Optional[int] = None
+    name: str = ""
+    price: float = 0.0
+    stock: int = 0
+
+# Create table from @dataclass
+products = await db.create(Product, pk='id')
+
+# Insert with @dataclass instance
+widget = await products.insert(Product(name="Widget", price=9.99, stock=100))
+print(widget)  # Product(id=1, name='Widget', price=9.99, stock=100)
+print(isinstance(widget, Product))  # True
+
+# All operations automatically use the @dataclass
+gadget = await products.insert(Product(name="Gadget", price=14.99, stock=50))
+
+# Select returns @dataclass instances
+all_products = await products()
+for product in all_products:
+    print(f"{product.name}: ${product.price}")
+```
+
+### Dataclass with Rich Types
+
+```python
+from deebase import Text
+from datetime import datetime
+
+class Article:
+    id: int
+    title: str
+    content: Text           # TEXT (unlimited)
+    metadata: dict          # JSON
+    published: datetime     # TIMESTAMP
+
+articles = await db.create(Article, pk='id')
+ArticleDC = articles.dataclass()
+
+# Insert with rich types
+article = await articles.insert(ArticleDC(
+    id=None,
+    title="Getting Started",
+    content="A" * 10000,  # Very long text
+    metadata={"author": "Alice", "tags": ["tutorial"]},
+    published=datetime.now()
+))
+
+print(article.title)                 # 'Getting Started'
+print(len(article.content))          # 10000
+print(article.metadata['author'])    # 'Alice'
+print(type(article.published))       # <class 'datetime.datetime'>
+```
+
+### Type Safety Benefits
+
+```python
+# Enable dataclass mode
+UserDC = users.dataclass()
+
+# IDE autocomplete works!
+all_users = await users()
+for user in all_users:
+    # Your IDE knows about .name, .email, .age
+    print(user.name.upper())
+    print(user.age + 1)
+
+# Type checking with mypy/pyright
+def process_user(user: UserDC):
+    """Type hints work with generated dataclasses."""
+    return user.name.upper()
+
+# Field access catches typos at development time
+user = await users[1]
+print(user.name)   # ✓ Works
+print(user.naem)   # ✗ IDE catches typo!
+```
+
+### Mixing Dict and Dataclass Inputs
+
+```python
+class Cat:
+    id: int
+    name: str
+    weight: float
+
+cats = await db.create(Cat, pk='id')
+CatDC = cats.dataclass()
+
+# Insert with dict
+tom = await cats.insert({"name": "Tom", "weight": 10.2})
+print(type(tom))  # <class 'deebase.dataclass_utils.Cat'>
+
+# Insert with dataclass
+fluffy = await cats.insert(CatDC(id=None, name="Fluffy", weight=8.5))
+print(type(fluffy))  # <class 'deebase.dataclass_utils.Cat'>
+
+# Update with dict
+await cats.update({"id": tom.id, "name": "Tom", "weight": 10.5})
+
+# Update with dataclass
+fluffy.weight = 9.0
+await cats.update(fluffy)
+
+# Both work seamlessly!
+```
+
+### Before and After .dataclass()
+
+```python
+class Book:
+    id: int
+    title: str
+    author: str
+
+books = await db.create(Book, pk='id')
+
+# BEFORE: Returns dicts
+book1 = await books.insert({"title": "1984", "author": "George Orwell"})
+print(type(book1))  # <class 'dict'>
+print(book1['title'])  # '1984'
+
+# Enable dataclass mode
+BookDC = books.dataclass()
+
+# AFTER: Returns dataclass instances
+book2 = await books.insert({"title": "Brave New World", "author": "Aldous Huxley"})
+print(type(book2))  # <class 'deebase.dataclass_utils.Book'>
+print(book2.title)  # 'Brave New World' - field access!
+
+# Existing records are returned as dataclasses
+all_books = await books()
+print(type(all_books[0]))  # <class 'deebase.dataclass_utils.Book'>
+print(all_books[0].title)  # '1984'
+```
+
+### Generated Dataclass Fields
+
+```python
+# Generated dataclasses have Optional fields for auto-increment PKs
+UserDC = users.dataclass()
+
+# Fields are Optional (default None) to handle auto-generated IDs
+user = UserDC(id=None, name="Alice", email="alice@example.com", age=30)
+print(user.id)  # None
+
+# After insert, ID is populated
+inserted = await users.insert(user)
+print(inserted.id)  # 1 (auto-generated)
+```
+
+### Complete Example
+
+```python
+from deebase import Database, Text
+from datetime import datetime
+
+db = Database("sqlite+aiosqlite:///myapp.db")
+
+class BlogPost:
+    id: int
+    title: str
+    content: Text
+    metadata: dict
+    created_at: datetime
+
+posts = await db.create(BlogPost, pk='id')
+
+# Enable dataclass mode for type safety
+PostDC = posts.dataclass()
+
+# Create post with dataclass instance
+post = await posts.insert(PostDC(
+    id=None,
+    title="My First Post",
+    content="Long content here...",
+    metadata={"author": "Alice", "tags": ["intro"]},
+    created_at=datetime.now()
+))
+
+# Type-safe field access
+print(f"Title: {post.title}")
+print(f"Author: {post.metadata['author']}")
+print(f"Created: {post.created_at}")
+
+# Update with dataclass
+post.metadata['views'] = 100
+updated = await posts.update(post)
+
+# Select with type safety
+all_posts = await posts()
+for p in all_posts:
+    print(f"{p.title}: {p.metadata.get('views', 0)} views")
+```
+
+### Testing
+
+- **20 new Phase 4 tests** - All passing ✅
+- **125 total tests** (Phase 1-4) - All passing ✅
+- Comprehensive coverage:
+  - Dataclass generation from table metadata
+  - CRUD with dataclass instances
+  - Actual `@dataclass` support
+  - Mixing dict and dataclass inputs
+  - Rich types with dataclasses
+  - Before/after `.dataclass()` behavior
+
+---
+
 ## Dependencies
 
 - Python 3.14+
