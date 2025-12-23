@@ -306,6 +306,32 @@ class TestMixedInputs:
         assert is_dataclass(updated)
         assert updated.name == "Alice Smith"
 
+    @pytest.mark.asyncio
+    async def test_upsert_with_dataclass_instance(self, db):
+        """Test upsert with dataclass instances."""
+        class Product:
+            id: int
+            name: str
+            price: float
+
+        products = await db.create(Product, pk='id')
+        ProductDC = products.dataclass()
+
+        # Upsert insert case (no ID)
+        widget = await products.upsert(ProductDC(id=None, name="Widget", price=9.99))
+        assert is_dataclass(widget)
+        assert widget.name == "Widget"
+
+        # Upsert update case (with ID)
+        widget.price = 14.99
+        updated = await products.upsert(widget)
+        assert is_dataclass(updated)
+        assert updated.price == 14.99
+
+        # Verify only one record
+        all_products = await products()
+        assert len(all_products) == 1
+
 
 class TestDataclassWithRichTypes:
     """Tests for dataclass with rich types (Text, JSON, datetime)."""
