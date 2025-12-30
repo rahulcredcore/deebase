@@ -25,6 +25,9 @@ uv run examples/phase5_reflection.py
 # Run Phase 7 example (views support)
 uv run examples/phase7_views.py
 
+# Run Phase 8 example (production polish & utilities)
+uv run examples/phase8_polish_utilities.py
+
 # Run complete example (combined features)
 uv run examples/complete_example.py
 ```
@@ -157,6 +160,29 @@ Demonstrates Phase 7 view support features:
 - Read-only operations on views
 - `view.drop()` - Drop views
 - Views with `.dataclass()` support
+
+### phase8_polish_utilities.py
+
+Demonstrates Phase 8 production polish features:
+- Enhanced exception system (6 exception types)
+- Rich error context and attributes
+- Error handling best practices
+- Code generation utilities
+- Production-ready patterns
+
+**Topics covered:**
+- `NotFoundError` - Record not found with table_name and filters
+- `IntegrityError` - Constraint violations with constraint type
+- `ValidationError` - Data validation failures with field and value
+- `SchemaError` - Schema errors with table_name and column_name
+- `InvalidOperationError` - Invalid operations (writing to views)
+- `ConnectionError` - Database connection issues
+- `dataclass_src(dc)` - Generate Python source code from dataclass
+- `create_mod(path, *dcs)` - Export multiple dataclasses to module file
+- `create_mod_from_tables(path, *tables)` - Export tables directly to module
+- Get-or-create patterns with race condition handling
+- Safe update patterns with validation
+- Safe lookup patterns returning None on error
 
 ### complete_example.py
 
