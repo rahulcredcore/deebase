@@ -60,8 +60,8 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`
 - 3 code generation utilities: `dataclass_src()`, `create_mod()`, `create_mod_from_tables()`
 - 2 comprehensive documentation files: API reference, migration guide from fastlite
+- Comprehensive Phase 8 example file demonstrating all error handling and code generation features
 - Enhanced error messages throughout with rich context
-- Updated all examples with proper exception handling
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
@@ -320,6 +320,9 @@ uv run examples/phase5_reflection.py
 # Phase 7: Views support
 uv run examples/phase7_views.py
 
+# Phase 8: Production polish and utilities
+uv run examples/phase8_polish_utilities.py
+
 # Complete example: Blog database with full features
 uv run examples/complete_example.py
 ```
@@ -333,7 +336,9 @@ All examples use in-memory databases and demonstrate:
 - Table reflection and dynamic access (db.t.tablename)
 - Composite primary keys
 - xtra() filtering
-- Error handling
+- Comprehensive error handling with rich exception context
+- Code generation utilities (dataclass_src, create_mod, create_mod_from_tables)
+- Production-ready error handling patterns
 - Schema inspection
 - Practical usage patterns
 
