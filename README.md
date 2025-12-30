@@ -243,7 +243,8 @@ uv run examples/complete_example.py
 
 ## Documentation
 
-- **[API Reference](docs/api_reference.md)** - Complete API documentation
+- **[API Reference](docs/api_reference.md)** - Complete API documentation with "When to Use" guidance
+- **[Best Practices](docs/best-practices.md)** - Design decisions and patterns (dict vs dataclass, reflection, consistency)
 - **[Migration Guide](docs/migrating_from_fastlite.md)** - Migrating from fastlite
 - **[Implementation Guide](docs/implemented.md)** - Detailed feature guide
 - **[How It Works](docs/how-it-works.md)** - Technical deep dive

@@ -348,7 +348,10 @@ See [examples/README.md](examples/README.md) for details.
 
 DeeBase includes comprehensive documentation:
 
+- **[docs/api_reference.md](docs/api_reference.md)** - Complete API documentation with "When to Use" guidance
+- **[docs/best-practices.md](docs/best-practices.md)** - Design decisions and patterns (dict vs dataclass, reflection, consistency)
 - **[docs/implemented.md](docs/implemented.md)** - User guide showing what works at each phase
+- **[docs/migrating_from_fastlite.md](docs/migrating_from_fastlite.md)** - Migration guide from fastlite
 - **[docs/how-it-works.md](docs/how-it-works.md)** - Technical guide explaining SQLAlchemy internals
 - **[docs/types_reference.md](docs/types_reference.md)** - Complete type system reference
 - **[docs/implementation_plan.md](docs/implementation_plan.md)** - 8-phase development roadmap

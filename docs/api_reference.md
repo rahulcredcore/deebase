@@ -74,6 +74,17 @@ active_users = db.v.active_users  # Access cached view
 
 Execute raw SQL and return results as dictionaries.
 
+**When to use:**
+- Complex queries not easily expressed with the Table API
+- Database-specific features (CTEs, window functions, etc.)
+- Bulk operations for performance
+- Schema modifications (ALTER TABLE, CREATE INDEX, etc.)
+- Working with databases before reflecting tables
+
+**When NOT to use:**
+- Simple CRUD operations (use Table methods instead)
+- When you want type safety (use dataclass-based Table operations)
+
 **Parameters:**
 - `query` (str): SQL query string
 
@@ -99,6 +110,17 @@ await db.q("INSERT INTO products (id, name) VALUES (1, 'Widget')")
 #### `async db.create(cls: type, pk: str | list[str] = None) -> Table`
 
 Create a table from a Python class with type annotations.
+
+**When to use:**
+- Starting a new project with schema defined in Python
+- When you want type-safe schema definitions
+- When the schema is version-controlled in Python code
+- Simple to moderate schema complexity
+
+**When NOT to use:**
+- Need advanced SQL features (CHECK constraints, triggers, custom types)
+- Working with an existing database (use `db.reflect()` instead)
+- Complex database-specific constraints
 
 **Parameters:**
 - `cls` (type): Class with type annotations defining schema
@@ -133,6 +155,17 @@ order_items = await db.create(OrderItem, pk=['order_id', 'product_id'])
 
 Reflect all tables from the database into cache.
 
+**When to use:**
+- Connecting to an existing database with many tables
+- Database created by migrations or external tools
+- At application startup for existing databases
+- When you need to work with all tables at once
+
+**When NOT to use:**
+- Tables created with `db.create()` (already cached automatically)
+- When you only need one specific table (use `db.reflect_table()` instead)
+- On every request (expensive operation - do once at startup)
+
 **Parameters:**
 - `schema` (str, optional): Schema name for databases that support schemas
 
@@ -146,6 +179,16 @@ posts = db.t.posts  # Now available
 #### `async db.reflect_table(name: str) -> Table`
 
 Reflect a specific table from the database.
+
+**When to use:**
+- Table created with raw SQL (`db.q("CREATE TABLE...")`)
+- Table created by migration tool or external application
+- When you only need one specific table (more efficient than `db.reflect()`)
+- After manually creating a table with `db.q()`
+
+**When NOT to use:**
+- Table created with `db.create()` (already cached automatically)
+- When you need multiple tables (use `db.reflect()` for bulk reflection)
 
 **Parameters:**
 - `name` (str): Table name to reflect
@@ -161,6 +204,18 @@ products = await db.reflect_table('products')
 #### `async db.create_view(name: str, sql: str, replace: bool = False) -> View`
 
 Create a database view.
+
+**When to use:**
+- Creating views from within your application
+- Views that are part of your application logic
+- When you want the view definition in Python code
+- New views that don't exist yet
+
+**When NOT to use:**
+- View already exists in database (use `db.reflect_view()` instead)
+- Views created by migration tools (reflect them instead)
+
+**Note:** After `db.create_view()`, the view is **automatically cached** and immediately available via `db.v.viewname`. No reflection needed.
 
 **Parameters:**
 - `name` (str): View name
@@ -180,6 +235,17 @@ view = await db.create_view(
 #### `async db.reflect_view(name: str) -> View`
 
 Reflect an existing view from the database.
+
+**When to use:**
+- View created with raw SQL (`db.q("CREATE VIEW...")`)
+- View created by migration tools or external applications
+- Views that exist in the database but weren't created via `db.create_view()`
+- After manually creating a view with `db.q()`
+
+**When NOT to use:**
+- View created with `db.create_view()` (already cached automatically)
+
+**Note:** Only views created **outside** DeeBase need reflection. Views created with `db.create_view()` are automatically cached.
 
 **Parameters:**
 - `name` (str): View name to reflect
@@ -261,6 +327,20 @@ Generate or return a dataclass for this table.
 
 After calling, all operations return dataclass instances instead of dicts.
 
+**When to use:**
+- Production applications where type safety matters
+- When you want IDE autocomplete on database records
+- Large codebases with multiple developers
+- When working with typed frameworks (FastAPI, etc.)
+- To catch field name typos at development time
+
+**When NOT to use:**
+- Quick scripts and prototypes
+- Jupyter notebooks and interactive exploration
+- When working with dynamic/varying data structures
+
+**Important:** Call `.dataclass()` **immediately** after creating/reflecting a table to maintain consistency. Once called, ALL operations return dataclass instances. See [best-practices.md](best-practices.md#maintaining-consistency) for details.
+
 **Returns:** `type` - Dataclass type
 
 **Example:**
@@ -276,6 +356,18 @@ print(user.name)  # Field access
 
 Return a new Table with additional filters applied to all operations.
 
+**When to use:**
+- Multi-tenant applications (filter by tenant_id)
+- Row-level security and access control
+- Scoped operations (only active records, only user's own data)
+- Reducing repetitive WHERE clauses
+- Enforcing business rules at the data layer
+
+**When NOT to use:**
+- One-time filtering (use `table.lookup()` with kwargs instead)
+- Complex conditions (use raw SQL with `db.q()`)
+- When filters need to change frequently
+
 **Parameters:**
 - `**kwargs`: Column=value filters
 
@@ -290,6 +382,15 @@ admins = await admin_users()  # Only role='admin' users
 #### `async table.insert(record: dict | Any) -> dict | Any`
 
 Insert a record into the table.
+
+**When to use:**
+- Creating new records
+- When you want the auto-generated primary key returned
+- Single record insertion with type safety
+
+**When NOT to use:**
+- Bulk inserts (use raw SQL for better performance)
+- Insert or update logic (use `upsert()` instead)
 
 **Parameters:**
 - `record` (dict | dataclass | object): Record to insert
@@ -314,6 +415,16 @@ user = await users.insert({
 
 Update a record by primary key.
 
+**When to use:**
+- Modifying existing records
+- When you have the full record with PK
+- Partial updates to specific fields
+
+**When NOT to use:**
+- Record might not exist (use `upsert()` instead)
+- Bulk updates (use raw SQL)
+- When you don't have the primary key
+
 **Parameters:**
 - `record` (dict | dataclass | object): Record with PK to update
 
@@ -335,6 +446,16 @@ updated = await users.update(user)
 
 Insert or update based on primary key existence.
 
+**When to use:**
+- Synchronizing data from external sources
+- When you don't know if record exists
+- Idempotent operations
+- APIs that support both create and update
+
+**When NOT to use:**
+- When you know the operation (use `insert()` or `update()` for clarity)
+- Complex business logic around creation vs updates
+
 **Parameters:**
 - `record` (dict | dataclass | object): Record to upsert
 
@@ -352,6 +473,16 @@ user = await users.upsert({
 #### `async table.delete(pk_value: Any) -> None`
 
 Delete a record by primary key.
+
+**When to use:**
+- Removing records by known primary key
+- Single record deletion
+- Hard deletes (permanent removal)
+
+**When NOT to use:**
+- Bulk deletes (use raw SQL)
+- Soft deletes (use `update()` to set deleted flag)
+- Conditional deletes (use raw SQL with WHERE)
 
 **Parameters:**
 - `pk_value`: Primary key value (or tuple for composite keys)
@@ -371,6 +502,17 @@ await order_items.delete((101, 5))  # (order_id, product_id)
 #### `async table(limit: int = None, with_pk: bool = False) -> list`
 
 Select records from the table.
+
+**When to use:**
+- Fetching all records (or limited subset)
+- Simple SELECT * queries
+- When you don't have filtering criteria
+- Paginated results with `limit`
+
+**When NOT to use:**
+- Complex queries with JOINs (use `db.q()`)
+- Filtered queries (use `lookup()` or `xtra()`)
+- When you know the primary key (use `table[pk]` instead)
 
 **Parameters:**
 - `limit` (int, optional): Limit number of results
@@ -396,6 +538,16 @@ for pk, user in records:
 
 Get a record by primary key.
 
+**When to use:**
+- Fetching a single record by known primary key
+- Fast lookups by ID
+- When the record must exist (raises NotFoundError if missing)
+
+**When NOT to use:**
+- When record might not exist (catch NotFoundError or use try/except)
+- Filtering by non-PK columns (use `lookup()`)
+- Fetching multiple records (use `table()` or `lookup()`)
+
 **Parameters:**
 - `pk_value`: Primary key value (or tuple for composite keys)
 
@@ -416,6 +568,18 @@ item = await order_items[(101, 5)]
 #### `async table.lookup(**kwargs) -> dict | Any`
 
 Find a single record matching the given criteria.
+
+**When to use:**
+- Finding a record by unique column (email, username, etc.)
+- When you expect exactly one result
+- Simple equality-based queries
+- One-time filters
+
+**When NOT to use:**
+- Multiple matching records expected (returns first one only)
+- Complex conditions (use `db.q()`)
+- Repeated filters (use `xtra()` instead)
+- When you have the primary key (use `table[pk]` instead)
 
 **Parameters:**
 - `**kwargs`: Column=value filters
@@ -640,6 +804,16 @@ Raised when there's a schema-related error.
 
 Generate Python source code for a dataclass.
 
+**When to use:**
+- Inspecting generated dataclass code
+- Debugging dataclass generation
+- Understanding field types and defaults
+- Documentation generation
+
+**When NOT to use:**
+- Exporting multiple dataclasses to files (use `create_mod()` instead)
+- Programmatic code generation (just use the dataclass directly)
+
 **Parameters:**
 - `cls` (type): Dataclass to generate source for
 
@@ -665,6 +839,17 @@ print(src)
 ### `create_mod(module_path: str, *dataclasses: type, overwrite: bool = False) -> None`
 
 Export dataclass definitions to a Python module file.
+
+**When to use:**
+- Generating models.py from database schema
+- Creating type-safe models for your application layer
+- Bootstrapping a new project from an existing database
+- Sharing schema definitions across projects
+- When you already have dataclass instances (from `table.dataclass()`)
+
+**When NOT to use:**
+- When you want to export directly from tables (use `create_mod_from_tables()` instead)
+- For single dataclass inspection (use `dataclass_src()` instead)
 
 **Parameters:**
 - `module_path` (str): Path to output .py file
@@ -692,6 +877,16 @@ create_mod("models.py", UserDC, PostDC, overwrite=True)
 Export dataclass definitions from Table instances.
 
 Convenience function that generates dataclasses from tables and exports them.
+
+**When to use:**
+- Quick export of reflected tables to Python models
+- When you don't need the dataclass instances (just the file)
+- One-step operation from tables to file
+- Bootstrapping models from existing database
+
+**When NOT to use:**
+- When you need to work with the dataclass instances (use `table.dataclass()` then `create_mod()`)
+- For single dataclass inspection (use `dataclass_src()`)
 
 **Parameters:**
 - `module_path` (str): Path to output .py file
