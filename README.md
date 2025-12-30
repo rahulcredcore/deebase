@@ -243,12 +243,55 @@ uv run examples/complete_example.py
 
 ## Documentation
 
-- **[API Reference](docs/api_reference.md)** - Complete API documentation with "When to Use" guidance
+DeeBase documentation follows the [Divio documentation system](https://docs.divio.com/documentation-system/), providing four types of documentation for different needs:
+
+```
+                    DIVIO DOCUMENTATION SYSTEM
+
+        Practical                    Theoretical
+           │                              │
+    ───────┼──────────────────────────────┼───────
+           │                              │
+    TUTORIALS (learning-oriented)  EXPLANATION (understanding-oriented)
+           │                              │
+    • examples/                    • how-it-works.md
+      - phase1_raw_sql.py          • migrating_from_fastlite.md
+      - phase2_table_creation.py   • implemented.md
+      - phase3_crud_operations.py
+      - phase4_dataclass_support.py
+      - phase5_reflection.py
+      - phase7_views.py
+      - phase8_polish_utilities.py
+      - complete_example.py
+           │                              │
+    ───────┼──────────────────────────────┼───────
+           │                              │
+    HOW-TO GUIDES (problem-oriented) REFERENCE (information-oriented)
+           │                              │
+    • best-practices.md            • api_reference.md
+      - Dict vs Dataclass          • types_reference.md
+      - Reflection decisions
+      - Error handling patterns
+      - Consistency strategies
+           │                              │
+```
+
+### By Type
+
+**📚 Tutorials** (Learning-oriented - "I want to learn")
+- **[examples/](examples/)** - Hands-on runnable examples for each phase
+
+**🔧 How-To Guides** (Problem-oriented - "I want to solve a problem")
 - **[Best Practices](docs/best-practices.md)** - Design decisions and patterns (dict vs dataclass, reflection, consistency)
-- **[Migration Guide](docs/migrating_from_fastlite.md)** - Migrating from fastlite
-- **[Implementation Guide](docs/implemented.md)** - Detailed feature guide
-- **[How It Works](docs/how-it-works.md)** - Technical deep dive
-- **[Type Reference](docs/types_reference.md)** - Type system guide
+
+**📖 Reference** (Information-oriented - "I want to look up details")
+- **[API Reference](docs/api_reference.md)** - Complete API documentation with "When to Use" guidance
+- **[Type Reference](docs/types_reference.md)** - Type system mapping guide
+
+**💡 Explanation** (Understanding-oriented - "I want to understand")
+- **[How It Works](docs/how-it-works.md)** - Technical deep dive into internals
+- **[Migration Guide](docs/migrating_from_fastlite.md)** - Understanding differences from fastlite
+- **[Implementation Guide](docs/implemented.md)** - Feature guide showing what works
 
 ## Supported Databases
 

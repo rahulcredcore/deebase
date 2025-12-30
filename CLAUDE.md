@@ -346,8 +346,33 @@ See [examples/README.md](examples/README.md) for details.
 
 ## Documentation
 
-DeeBase includes comprehensive documentation:
+DeeBase documentation follows the [Divio documentation system](https://docs.divio.com/documentation-system/):
 
+```
+                    DIVIO DOCUMENTATION SYSTEM
+
+        Practical                    Theoretical
+           │                              │
+    ───────┼──────────────────────────────┼───────
+           │                              │
+    TUTORIALS (learning-oriented)  EXPLANATION (understanding-oriented)
+           │                              │
+    • examples/                    • how-it-works.md
+      - phase1-8 examples          • migrating_from_fastlite.md
+      - complete_example.py        • implemented.md
+           │                              │
+    ───────┼──────────────────────────────┼───────
+           │                              │
+    HOW-TO GUIDES (problem-oriented) REFERENCE (information-oriented)
+           │                              │
+    • best-practices.md            • api_reference.md
+      - Dict vs Dataclass          • types_reference.md
+      - Reflection decisions       • implementation_plan.md
+      - Error handling patterns
+           │                              │
+```
+
+**Full Documentation:**
 - **[docs/api_reference.md](docs/api_reference.md)** - Complete API documentation with "When to Use" guidance
 - **[docs/best-practices.md](docs/best-practices.md)** - Design decisions and patterns (dict vs dataclass, reflection, consistency)
 - **[docs/implemented.md](docs/implemented.md)** - User guide showing what works at each phase
