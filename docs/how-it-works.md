@@ -1967,6 +1967,406 @@ results = await view()
 
 ---
 
+## 13. Transaction Support (Phase 9)
+
+Phase 9 adds explicit transaction support using Python's `contextvars` for thread-safe session tracking in async environments.
+
+### The Transaction Challenge
+
+**Problem:** Each CRUD operation creates its own session and auto-commits:
+```python
+# Without transactions - each operation commits independently
+user = await users.insert({"name": "Alice"})  # Commits
+await users.update(user)                       # Commits
+
+# If update fails, insert still committed - partial state!
+```
+
+**Solution:** Share a session across multiple operations within a transaction boundary.
+
+### Contextvars for Session Tracking
+
+**What are contextvars?**
+- Python feature for context-local state in async code
+- Each async task has its own context
+- Values don't leak between tasks
+- Thread-safe for async operations
+
+**Implementation:**
+```python
+# In database.py
+from contextvars import ContextVar
+
+# Global context variable for tracking active sessions
+_session_context: ContextVar[AsyncSession | None] = ContextVar(
+    '_session_context',
+    default=None
+)
+```
+
+### Database.transaction() - The Context Manager
+
+**What it does:**
+Creates a transaction boundary by managing a shared session in the context.
+
+**Implementation:**
+```python
+@asynccontextmanager
+async def transaction(self):
+    """Create a transaction context for multiple operations."""
+    # Create a new session for this transaction
+    async with self._session_factory() as session:
+        # Store session in context
+        token = _session_context.set(session)
+
+        try:
+            yield session
+            # Commit on success
+            await session.commit()
+        except Exception:
+            # Rollback on error
+            await session.rollback()
+            raise
+        finally:
+            # Clear context
+            _session_context.reset(token)
+```
+
+**Key mechanics:**
+1. Create session from factory
+2. Store in contextvar with `set()` (returns token)
+3. Yield session for operations
+4. Commit on success, rollback on exception
+5. Reset context with token (removes session)
+
+### How CRUD Operations Detect Transactions
+
+**Modified _session_scope() helper:**
+```python
+@asynccontextmanager
+async def _session_scope(self):
+    """
+    Get a session for an operation.
+    If already in a transaction, use that session.
+    Otherwise create a new auto-committing session.
+    """
+    # Check if there's an active transaction
+    active_session = _session_context.get()
+
+    if active_session:
+        # Inside transaction - use the shared session
+        # Don't commit/rollback (transaction handles it)
+        yield active_session
+    else:
+        # No transaction - create new session
+        async with self._session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+```
+
+**How it works:**
+- `_session_context.get()` retrieves active session (or None)
+- If session exists → we're in a transaction → use it
+- If no session → create new session with auto-commit
+- Operations unchanged - just use `_session_scope()`
+
+### CRUD Operations Participate Automatically
+
+**All operations use _session_scope():**
+```python
+# In Table.insert()
+async def insert(self, record):
+    # ... validation ...
+
+    async with self._db._session_scope() as session:
+        # Execute INSERT
+        result = await session.execute(stmt)
+        # ... fetch and return ...
+
+    # If in transaction: session shared, no commit
+    # If not in transaction: session auto-commits
+```
+
+**The magic:**
+- Operations don't know/care if they're in a transaction
+- `_session_scope()` handles the logic
+- No code changes needed in CRUD methods
+- Completely backward compatible
+
+### Transaction Flow Example
+
+```python
+# User code
+async with db.transaction():
+    user = await users.insert({"name": "Alice"})
+    await posts.insert({"user_id": user['id']})
+```
+
+**What happens internally:**
+
+```
+1. db.transaction() called
+   ↓
+2. Create AsyncSession
+   ↓
+3. Store in _session_context
+   ↓
+4. users.insert() called
+   ↓
+5. _session_scope() checks context → finds session
+   ↓
+6. Uses shared session, executes INSERT
+   ↓
+7. Returns without committing (transaction owns commit)
+   ↓
+8. posts.insert() called
+   ↓
+9. _session_scope() checks context → finds same session
+   ↓
+10. Uses same session, executes INSERT
+    ↓
+11. Returns without committing
+    ↓
+12. Transaction context exits
+    ↓
+13. Commits both operations together
+    ↓
+14. Resets _session_context
+```
+
+**If error occurs:**
+```
+1-10. Same as above
+      ↓
+11. Exception raised in posts.insert()
+    ↓
+12. Transaction catches exception
+    ↓
+13. Rollback both operations
+    ↓
+14. Resets _session_context
+    ↓
+15. Re-raises exception
+```
+
+### Why Contextvars?
+
+**Thread-safety for async:**
+```python
+# Task 1
+async def task1():
+    async with db.transaction():
+        await users.insert({"name": "Alice"})
+
+# Task 2
+async def task2():
+    async with db.transaction():
+        await users.insert({"name": "Bob"})
+
+# Run concurrently
+await asyncio.gather(task1(), task2())
+```
+
+**What happens:**
+- Each task has its own context
+- Each task gets its own session
+- Sessions don't interfere with each other
+- `_session_context.get()` returns correct session per task
+
+**Without contextvars:**
+- Would need task-local storage (complex)
+- Risk of session leakage between tasks
+- Not thread-safe
+
+### Commit/Rollback Lifecycle
+
+**Transaction lifecycle:**
+```
+db.transaction() entered
+  ↓
+Session created
+  ↓
+Session stored in context
+  ↓
+Multiple operations execute (share session)
+  ↓
+Exception?
+  ├─ No → await session.commit()
+  └─ Yes → await session.rollback()
+  ↓
+Context reset
+  ↓
+Transaction exited
+```
+
+**Key points:**
+- Commit/rollback happens once per transaction
+- All operations in between share the session
+- Context automatically cleaned up (finally block)
+
+### Backward Compatibility
+
+**Without transactions (existing code):**
+```python
+# Each operation gets its own session
+user = await users.insert({"name": "Alice"})  # New session, commit
+await users.update(user)                       # New session, commit
+```
+
+**Flow:**
+```
+insert() → _session_scope()
+         → _session_context.get() → None (no transaction)
+         → Create new session
+         → Execute INSERT
+         → Commit
+         → Close session
+
+update() → _session_scope()
+         → _session_context.get() → None (no transaction)
+         → Create new session
+         → Execute UPDATE
+         → Commit
+         → Close session
+```
+
+**With transactions:**
+```python
+async with db.transaction():
+    user = await users.insert({"name": "Alice"})
+    await users.update(user)
+```
+
+**Flow:**
+```
+transaction() → Create session
+             → Store in _session_context
+
+insert() → _session_scope()
+        → _session_context.get() → Session (found!)
+        → Use shared session
+        → Execute INSERT
+        → Return (no commit)
+
+update() → _session_scope()
+        → _session_context.get() → Session (found!)
+        → Use same session
+        → Execute UPDATE
+        → Return (no commit)
+
+transaction() exit → Commit shared session
+                   → Reset _session_context
+```
+
+### Performance Implications
+
+**Without transaction (2 operations):**
+- Create session 1
+- Execute INSERT
+- Commit session 1
+- Close session 1
+- Create session 2
+- Execute UPDATE
+- Commit session 2
+- Close session 2
+- **Total: 2 sessions, 2 commits**
+
+**With transaction (2 operations):**
+- Create session
+- Execute INSERT
+- Execute UPDATE
+- Commit session
+- Close session
+- **Total: 1 session, 1 commit**
+
+**Benefits:**
+- Fewer session creations
+- Fewer commits (faster)
+- Single transaction in database log
+- Better atomicity guarantees
+
+### Testing Transactions
+
+**Key test scenarios:**
+```python
+# Test 1: Basic commit
+async with db.transaction():
+    user = await users.insert({"name": "Alice"})
+    assert await users[user['id']]  # Visible within transaction
+
+# Test 2: Rollback on error
+try:
+    async with db.transaction():
+        user = await users.insert({"name": "Bob"})
+        raise ValueError("Oops")
+except ValueError:
+    pass
+
+# User not in database - rolled back
+assert len(await users()) == 0
+
+# Test 3: Nested operations
+async with db.transaction():
+    user = await users.insert({"name": "Charlie"})
+    post = await posts.insert({"user_id": user['id']})
+    comment = await comments.insert({"post_id": post['id']})
+
+# All three committed together
+```
+
+### Technical Deep Dive: Contextvars
+
+**How `ContextVar` works:**
+
+1. **Creation:**
+   ```python
+   _session_context: ContextVar[AsyncSession | None] = ContextVar(
+       '_session_context',
+       default=None
+   )
+   ```
+
+2. **Setting value:**
+   ```python
+   token = _session_context.set(session)
+   # Returns token for later reset
+   # Value stored in current async context
+   ```
+
+3. **Getting value:**
+   ```python
+   active_session = _session_context.get()
+   # Returns value for current async context
+   # Returns default (None) if not set
+   ```
+
+4. **Resetting:**
+   ```python
+   _session_context.reset(token)
+   # Restores previous value (or removes if no previous)
+   # Important for cleanup
+   ```
+
+**Why tokens?**
+- Allow nested context managers
+- Restore previous value on reset
+- Handle recursive transactions (future feature)
+
+### Future Enhancements
+
+Possible improvements:
+1. **Nested transactions** (savepoints)
+2. **Transaction isolation levels**
+3. **Read-only transactions** (performance optimization)
+4. **Transaction context propagation** (across function calls)
+5. **Transaction middleware** (logging, metrics)
+
+---
+
 ## Key Takeaways
 
 1. **SQLAlchemy Core, Not ORM**: We use Tables and Columns directly, not ORM models

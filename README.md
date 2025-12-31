@@ -279,6 +279,7 @@ Runnable examples are available in the [`examples/`](examples/) folder:
 - **[phase5_reflection.py](examples/phase5_reflection.py)** - Working with existing databases
 - **[phase7_views.py](examples/phase7_views.py)** - Database views
 - **[phase8_polish_utilities.py](examples/phase8_polish_utilities.py)** - Error handling & code generation
+- **[transactions.py](examples/transactions.py)** - Multi-operation atomic transactions
 - **[complete_example.py](examples/complete_example.py)** - Full-featured blog database
 
 Run any example:

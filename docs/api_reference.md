@@ -258,6 +258,54 @@ view = await db.reflect_view('active_users')
 # Also makes db.v.active_users available
 ```
 
+#### `async db.transaction() -> AsyncContextManager`
+
+Create a transaction context for multi-operation atomicity.
+
+**When to use:**
+- Multiple operations must succeed or fail together (atomicity)
+- Money transfers, inventory moves, or data synchronization
+- Creating related records across multiple tables
+- Batch operations where partial success is unacceptable
+- Read-modify-write operations to prevent race conditions
+
+**When NOT to use:**
+- Single operations (each operation is already atomic)
+- Read-only queries (no benefit from transactions)
+- DDL operations (CREATE TABLE, ALTER TABLE - not transactional in most databases)
+- Long-running operations (hold locks minimally)
+
+**Parameters:**
+- Yields: `AsyncSession` - SQLAlchemy async session
+
+**Returns:** Context manager that commits on success, rolls back on exception
+
+**Usage example:**
+```python
+# Money transfer (atomic)
+async with db.transaction():
+    sender = await users[1]
+    receiver = await users[2]
+
+    sender['balance'] -= 100.0
+    receiver['balance'] += 100.0
+
+    await users.update(sender)
+    await users.update(receiver)
+# Both updates commit together
+
+# Rollback on error
+async with db.transaction():
+    user = await users.insert({"name": "Alice"})
+    # Error here rolls back the insert
+    await posts.insert({"user_id": 9999})  # Fails - user insert rolled back
+```
+
+**Related operations:**
+- All Table CRUD operations (insert, update, delete) participate automatically
+- No code changes needed - operations detect active transaction
+- Backward compatible - existing code works without transactions
+
 #### `async db.close() -> None`
 
 Close the database connection and dispose of the engine.

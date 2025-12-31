@@ -591,6 +591,267 @@ async def bulk_insert_users(user_list: list[dict]) -> dict:
 
 ---
 
+## Transaction Management
+
+Understanding when and how to use transactions is critical for data integrity and performance.
+
+### When to Use Transactions
+
+**Use transactions when:**
+
+1. **Multi-operation atomicity** - All operations must succeed or fail together
+   ```python
+   async with db.transaction():
+       user = await users.insert({"name": "Alice"})
+       profile = await profiles.insert({"user_id": user['id']})
+   # Both succeed or both fail
+   ```
+
+2. **Financial operations** - Money transfers, account balances
+   ```python
+   async with db.transaction():
+       sender['balance'] -= amount
+       receiver['balance'] += amount
+       await accounts.update(sender)
+       await accounts.update(receiver)
+   ```
+
+3. **Inventory management** - Stock updates, order fulfillment
+   ```python
+   async with db.transaction():
+       product = await products[product_id]
+       product['stock'] -= quantity
+       await products.update(product)
+       await orders.insert({"product_id": product_id, "quantity": quantity})
+   ```
+
+4. **Read-modify-write** - Prevent race conditions
+   ```python
+   async with db.transaction():
+       counter = await counters[1]
+       counter['value'] += 1
+       await counters.update(counter)
+   # Atomic increment - no lost updates
+   ```
+
+5. **Batch operations** - Create/update multiple related records
+   ```python
+   async with db.transaction():
+       order = await orders.insert({"total": 0.0})
+       for item in items:
+           await order_items.insert({"order_id": order['id'], **item})
+   ```
+
+### When NOT to Use Transactions
+
+**Avoid transactions for:**
+
+1. **Single operations** - Each operation is already atomic
+   ```python
+   # ❌ Unnecessary transaction
+   async with db.transaction():
+       user = await users.insert({"name": "Bob"})
+
+   # ✅ Single operation is already atomic
+   user = await users.insert({"name": "Bob"})
+   ```
+
+2. **Read-only queries** - No benefit from transactions
+   ```python
+   # ❌ Unnecessary transaction
+   async with db.transaction():
+       users_list = await users()
+
+   # ✅ Direct query
+   users_list = await users()
+   ```
+
+3. **DDL operations** - CREATE TABLE, ALTER TABLE (not transactional in most databases)
+   ```python
+   # ❌ DDL not transactional
+   async with db.transaction():
+       await db.q("CREATE TABLE products (id INT)")
+
+   # ✅ DDL outside transactions
+   await db.q("CREATE TABLE products (id INT)")
+   ```
+
+4. **Long-running operations** - Hold locks minimally
+   ```python
+   # ❌ Long transaction holds locks
+   async with db.transaction():
+       for i in range(10000):
+           await users.insert({"name": f"User {i}"})
+
+   # ✅ Smaller batches or no transaction
+   for i in range(10000):
+       await users.insert({"name": f"User {i}"})
+   ```
+
+### Common Transaction Patterns
+
+#### Pattern 1: Money Transfer (Atomic Update)
+
+```python
+async def transfer_money(from_id: int, to_id: int, amount: float):
+    """Transfer money atomically between accounts."""
+    async with db.transaction():
+        # Get both accounts
+        sender = await accounts[from_id]
+        receiver = await accounts[to_id]
+
+        # Validate
+        if sender['balance'] < amount:
+            raise ValueError("Insufficient funds")
+
+        # Update both
+        sender['balance'] -= amount
+        receiver['balance'] += amount
+
+        await accounts.update(sender)
+        await accounts.update(receiver)
+
+    # Commits together - both succeed or both fail
+```
+
+#### Pattern 2: Create with Related Records
+
+```python
+async def create_user_with_profile(user_data: dict, profile_data: dict):
+    """Create user and profile atomically."""
+    async with db.transaction():
+        # Create user
+        user = await users.insert(user_data)
+
+        # Create profile with user_id
+        profile_data['user_id'] = user['id']
+        profile = await profiles.insert(profile_data)
+
+        return user, profile
+
+    # If profile creation fails, user creation rolls back
+```
+
+#### Pattern 3: Batch Insert with Validation
+
+```python
+async def create_order(order_data: dict, items: list[dict]):
+    """Create order with items, validating stock."""
+    async with db.transaction():
+        # Validate all items have stock
+        for item in items:
+            product = await products[item['product_id']]
+            if product['stock'] < item['quantity']:
+                raise ValueError(f"Insufficient stock for {product['name']}")
+
+        # Create order
+        order = await orders.insert(order_data)
+
+        # Create items and decrement stock
+        for item in items:
+            item['order_id'] = order['id']
+            await order_items.insert(item)
+
+            product = await products[item['product_id']]
+            product['stock'] -= item['quantity']
+            await products.update(product)
+
+        return order
+
+    # All or nothing - order, items, and stock updates
+```
+
+#### Pattern 4: Safe Counter Increment
+
+```python
+async def increment_counter(counter_id: int):
+    """Atomically increment a counter."""
+    async with db.transaction():
+        counter = await counters[counter_id]
+        counter['value'] += 1
+        await counters.update(counter)
+        return counter['value']
+
+    # No lost updates - transaction prevents race conditions
+```
+
+### Error Handling in Transactions
+
+```python
+# Pattern: Catch specific errors, let transaction rollback
+async def safe_transfer(from_id: int, to_id: int, amount: float) -> dict:
+    try:
+        async with db.transaction():
+            sender = await accounts[from_id]
+            receiver = await accounts[to_id]
+
+            if sender['balance'] < amount:
+                raise ValueError("Insufficient funds")
+
+            sender['balance'] -= amount
+            receiver['balance'] += amount
+
+            await accounts.update(sender)
+            await accounts.update(receiver)
+
+        return {"success": True}
+
+    except NotFoundError as e:
+        return {"success": False, "error": f"Account not found: {e.table_name}"}
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+    # Any exception causes automatic rollback
+```
+
+### Performance Considerations
+
+**Transactions add overhead:**
+- Locks held for transaction duration
+- Rollback overhead on failure
+- Database transaction log overhead
+
+**Best practices:**
+1. Keep transactions short
+2. Don't do I/O inside transactions (API calls, file operations)
+3. Don't use transactions for read-only operations
+4. Consider optimistic locking for low-contention scenarios
+
+```python
+# ❌ BAD: Long transaction with I/O
+async with db.transaction():
+    user = await users.insert({"name": "Alice"})
+    # Don't do this in a transaction!
+    await send_email(user['email'])
+    await log_to_external_service(user)
+
+# ✅ GOOD: Short transaction, then I/O
+async with db.transaction():
+    user = await users.insert({"name": "Alice"})
+
+# I/O after transaction
+await send_email(user['email'])
+await log_to_external_service(user)
+```
+
+### Backward Compatibility
+
+Transactions are **completely optional**. Existing code works without changes:
+
+```python
+# Without transactions (each operation auto-commits)
+user = await users.insert({"name": "Alice"})
+await users.update(user)
+
+# With transactions (explicit control)
+async with db.transaction():
+    user = await users.insert({"name": "Bob"})
+    await users.update(user)
+```
+
+All CRUD operations automatically participate in active transactions - no code changes needed.
+
+---
+
 ## Performance Considerations
 
 ### Connection Management
