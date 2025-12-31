@@ -2,6 +2,7 @@
 
 from typing import Optional, Any
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, AsyncSession
 from sqlalchemy.orm import sessionmaker
@@ -15,6 +16,9 @@ from .exceptions import (
     SchemaError,
     ValidationError,
 )
+
+# Context variable to store the active transaction session
+_active_session: ContextVar[Optional[AsyncSession]] = ContextVar('_active_session', default=None)
 
 
 class Database:
@@ -69,6 +73,33 @@ class Database:
             except Exception:
                 await session.rollback()
                 raise
+
+    @asynccontextmanager
+    async def transaction(self):
+        """Context manager for multi-operation transactions.
+
+        All CRUD operations within this context will participate in a single
+        transaction that commits on success or rolls back on exception.
+
+        Yields:
+            AsyncSession for the transaction
+
+        Example:
+            >>> async with db.transaction():
+            ...     await users.insert({"name": "Alice"})
+            ...     await users.insert({"name": "Bob"})
+            ...     # Both inserts commit together
+        """
+        async with self._session_factory() as session:
+            token = _active_session.set(session)
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+            finally:
+                _active_session.reset(token)
 
     async def q(self, query: str) -> list[dict]:
         """Execute a raw SQL query and return results as dicts.

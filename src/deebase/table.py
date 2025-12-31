@@ -1,8 +1,10 @@
 """Table class for database table operations."""
 
 from typing import Any, Optional
+from contextlib import asynccontextmanager
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.orm import sessionmaker
 
 from .column import ColumnAccessor
 from .exceptions import (
@@ -43,6 +45,37 @@ class Table:
         self._engine = engine
         self._dataclass_cls = dataclass_cls
         self._xtra_filters = xtra_filters or {}
+
+    def _get_active_session(self) -> Optional[AsyncSession]:
+        """Get the active transaction session if one exists."""
+        from .database import _active_session
+        return _active_session.get()
+
+    @asynccontextmanager
+    async def _session_scope(self):
+        """Get a session - either active transaction or new managed session.
+
+        If within a transaction context, yields the active session without
+        committing/rolling back. Otherwise, creates a new session and manages
+        its lifecycle.
+
+        Yields:
+            tuple[AsyncSession, bool] - (session, should_manage_lifecycle)
+        """
+        active_session = self._get_active_session()
+
+        if active_session:
+            # Within a transaction - use it, don't manage lifecycle
+            yield active_session, False
+        else:
+            # No transaction - create and manage own session
+            session_factory = sessionmaker(
+                self._engine,
+                class_=AsyncSession,
+                expire_on_commit=False
+            )
+            async with session_factory() as session:
+                yield session, True
 
     @property
     def c(self) -> ColumnAccessor:
@@ -106,9 +139,6 @@ class Table:
         Returns:
             Inserted record as dict or dataclass (depending on configuration)
         """
-        from sqlalchemy.ext.asyncio import AsyncSession
-        from sqlalchemy.orm import sessionmaker
-
         # Convert input to dict
         data = self._from_input(record)
 
@@ -123,20 +153,15 @@ class Table:
             # If not provided, set the xtra filter value
             data[col_name] = expected_value
 
-        # Create session factory
-        session_factory = sessionmaker(
-            self._engine,
-            class_=AsyncSession,
-            expire_on_commit=False
-        )
-
         # Execute INSERT and fetch the inserted record
-        async with session_factory() as session:
+        async with self._session_scope() as (session, should_manage):
             try:
                 # Insert the record
                 stmt = sa.insert(self._sa_table).values(**data)
                 result = await session.execute(stmt)
-                await session.commit()
+
+                if should_manage:
+                    await session.commit()
 
                 # Get the inserted record's primary key
                 inserted_pk = result.inserted_primary_key
@@ -163,7 +188,8 @@ class Table:
                 return self._to_record(row)
 
             except sa.exc.IntegrityError as e:
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 # Extract constraint name if available
                 constraint = None
                 error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
@@ -180,7 +206,8 @@ class Table:
                     table_name=self._name
                 ) from e
             except Exception as e:
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 raise RuntimeError(
                     f"Unexpected error inserting into table '{self._name}': {str(e)}"
                 ) from e
@@ -197,9 +224,6 @@ class Table:
         Raises:
             NotFoundError: If record not found or violates xtra filters
         """
-        from sqlalchemy.ext.asyncio import AsyncSession
-        from sqlalchemy.orm import sessionmaker
-
         # Convert input to dict
         data = self._from_input(record)
 
@@ -223,15 +247,8 @@ class Table:
                     value=data[col_name]
                 )
 
-        # Create session factory
-        session_factory = sessionmaker(
-            self._engine,
-            class_=AsyncSession,
-            expire_on_commit=False
-        )
-
         # Execute UPDATE
-        async with session_factory() as session:
+        async with self._session_scope() as (session, should_manage):
             try:
                 # Build WHERE clause for primary key(s)
                 stmt = sa.update(self._sa_table)
@@ -247,7 +264,9 @@ class Table:
                 stmt = stmt.values(**update_data)
 
                 result = await session.execute(stmt)
-                await session.commit()
+
+                if should_manage:
+                    await session.commit()
 
                 # Check if any row was updated
                 if result.rowcount == 0:
@@ -275,17 +294,20 @@ class Table:
                 return self._to_record(row)
 
             except (NotFoundError, ValidationError):
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 raise
             except sa.exc.IntegrityError as e:
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
                 raise DeeBaseIntegrityError(
                     f"Failed to update table '{self._name}': {error_msg}",
                     table_name=self._name
                 ) from e
             except Exception as e:
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 raise RuntimeError(
                     f"Unexpected error updating table '{self._name}': {str(e)}"
                 ) from e
@@ -299,9 +321,6 @@ class Table:
         Returns:
             Upserted record as dict or dataclass
         """
-        from sqlalchemy.ext.asyncio import AsyncSession
-        from sqlalchemy.orm import sessionmaker
-
         # Convert input to dict
         data = self._from_input(record)
 
@@ -320,13 +339,7 @@ class Table:
             return await self.insert(record)
 
         # Check if record exists
-        session_factory = sessionmaker(
-            self._engine,
-            class_=AsyncSession,
-            expire_on_commit=False
-        )
-
-        async with session_factory() as session:
+        async with self._session_scope() as (session, should_manage):
             try:
                 # Build SELECT to check existence
                 select_stmt = sa.select(self._sa_table)
@@ -340,11 +353,12 @@ class Table:
                 result = await session.execute(select_stmt)
                 existing = result.fetchone()
 
-                # Commit the session (even though we only did a SELECT)
-                await session.commit()
+                if should_manage:
+                    await session.commit()
 
             except Exception:
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 raise
 
         # If exists, update; otherwise, insert
@@ -362,9 +376,6 @@ class Table:
         Raises:
             NotFoundError: If record not found or violates xtra filters
         """
-        from sqlalchemy.ext.asyncio import AsyncSession
-        from sqlalchemy.orm import sessionmaker
-
         # Get primary key columns
         pk_cols = list(self._sa_table.primary_key.columns)
 
@@ -386,15 +397,8 @@ class Table:
                 field='primary_key'
             )
 
-        # Create session factory
-        session_factory = sessionmaker(
-            self._engine,
-            class_=AsyncSession,
-            expire_on_commit=False
-        )
-
         # Execute DELETE
-        async with session_factory() as session:
+        async with self._session_scope() as (session, should_manage):
             try:
                 # Build DELETE statement with WHERE clause
                 stmt = sa.delete(self._sa_table)
@@ -406,7 +410,9 @@ class Table:
                     stmt = stmt.where(self._sa_table.c[col_name] == value)
 
                 result = await session.execute(stmt)
-                await session.commit()
+
+                if should_manage:
+                    await session.commit()
 
                 # Check if any row was deleted
                 if result.rowcount == 0:
@@ -417,10 +423,12 @@ class Table:
                     )
 
             except (NotFoundError, ValidationError):
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 raise
             except Exception as e:
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 raise RuntimeError(
                     f"Unexpected error deleting from table '{self._name}': {str(e)}"
                 ) from e
@@ -437,21 +445,11 @@ class Table:
         Raises:
             NotFoundError: If no record matches
         """
-        from sqlalchemy.ext.asyncio import AsyncSession
-        from sqlalchemy.orm import sessionmaker
-
         if not kwargs:
             raise ValidationError("lookup() requires at least one filter argument")
 
-        # Create session factory
-        session_factory = sessionmaker(
-            self._engine,
-            class_=AsyncSession,
-            expire_on_commit=False
-        )
-
         # Execute SELECT with WHERE
-        async with session_factory() as session:
+        async with self._session_scope() as (session, should_manage):
             try:
                 # Build SELECT statement
                 stmt = sa.select(self._sa_table)
@@ -473,7 +471,8 @@ class Table:
                 result = await session.execute(stmt)
                 row = result.fetchone()
 
-                await session.commit()
+                if should_manage:
+                    await session.commit()
 
                 if row is None:
                     raise NotFoundError(
@@ -485,10 +484,12 @@ class Table:
                 return self._to_record(row)
 
             except (NotFoundError, ValidationError, SchemaError):
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 raise
             except Exception as e:
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 raise RuntimeError(
                     f"Unexpected error in lookup on table '{self._name}': {str(e)}"
                 ) from e
@@ -507,18 +508,8 @@ class Table:
         Returns:
             List of records as dicts or dataclasses
         """
-        from sqlalchemy.ext.asyncio import AsyncSession
-        from sqlalchemy.orm import sessionmaker
-
-        # Create session factory
-        session_factory = sessionmaker(
-            self._engine,
-            class_=AsyncSession,
-            expire_on_commit=False
-        )
-
         # Execute SELECT
-        async with session_factory() as session:
+        async with self._session_scope() as (session, should_manage):
             try:
                 # Build SELECT statement
                 stmt = sa.select(self._sa_table)
@@ -534,7 +525,8 @@ class Table:
                 result = await session.execute(stmt)
                 rows = result.fetchall()
 
-                await session.commit()
+                if should_manage:
+                    await session.commit()
 
                 # Convert rows to records
                 if with_pk:
@@ -554,7 +546,8 @@ class Table:
                     return [self._to_record(row) for row in rows]
 
             except Exception:
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 raise
 
     async def __getitem__(self, pk_value: Any) -> dict | Any:
@@ -569,9 +562,6 @@ class Table:
         Raises:
             NotFoundError: If record not found
         """
-        from sqlalchemy.ext.asyncio import AsyncSession
-        from sqlalchemy.orm import sessionmaker
-
         # Get primary key columns
         pk_cols = list(self._sa_table.primary_key.columns)
 
@@ -597,15 +587,8 @@ class Table:
                 field='primary_key'
             )
 
-        # Create session factory
-        session_factory = sessionmaker(
-            self._engine,
-            class_=AsyncSession,
-            expire_on_commit=False
-        )
-
         # Execute SELECT
-        async with session_factory() as session:
+        async with self._session_scope() as (session, should_manage):
             try:
                 # Build SELECT statement
                 stmt = sa.select(self._sa_table)
@@ -619,7 +602,8 @@ class Table:
                 result = await session.execute(stmt)
                 row = result.fetchone()
 
-                await session.commit()
+                if should_manage:
+                    await session.commit()
 
                 if row is None:
                     raise NotFoundError(
@@ -631,33 +615,27 @@ class Table:
                 return self._to_record(row)
 
             except (NotFoundError, ValidationError):
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 raise
             except Exception as e:
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 raise RuntimeError(
                     f"Unexpected error fetching from table '{self._name}': {str(e)}"
                 ) from e
 
     async def drop(self) -> None:
         """Drop the table from the database."""
-        from sqlalchemy.ext.asyncio import AsyncSession
-        from sqlalchemy.orm import sessionmaker
-
-        # Create session factory
-        session_factory = sessionmaker(
-            self._engine,
-            class_=AsyncSession,
-            expire_on_commit=False
-        )
-
         # Execute DROP TABLE
-        async with session_factory() as session:
+        async with self._session_scope() as (session, should_manage):
             try:
                 await session.execute(sa.schema.DropTable(self._sa_table))
-                await session.commit()
+                if should_manage:
+                    await session.commit()
             except Exception:
-                await session.rollback()
+                if should_manage:
+                    await session.rollback()
                 raise
 
     async def transform(self, **kwargs) -> None:
