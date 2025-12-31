@@ -26,12 +26,14 @@ DeeBase provides a simple, intuitive interface for async database operations in 
 ### Installation
 
 ```bash
-# Using uv (recommended)
-uv add sqlalchemy aiosqlite
-
 # Using pip
-pip install sqlalchemy aiosqlite
+pip install deebase
+
+# Using uv (recommended)
+uv add deebase
 ```
+
+DeeBase will automatically install its dependencies: SQLAlchemy, aiosqlite, asyncpg, and greenlet.
 
 ### Basic Example
 
