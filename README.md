@@ -77,8 +77,21 @@ await db.close()
 
 ## Type Safety with Dataclasses
 
+DeeBase supports two approaches for type-safe operations:
+
+### Option 1: Start with a plain class, generate dataclass later
+
 ```python
-# Enable dataclass mode for type-safe operations
+# Create table from plain class
+class User:
+    id: int
+    name: str
+    email: str
+    created_at: datetime
+
+users = await db.create(User, pk='id')
+
+# Later, enable dataclass mode for type-safe operations
 UserDC = users.dataclass()
 
 # Now all operations return dataclass instances
@@ -93,6 +106,38 @@ new_user = await users.insert(UserDC(
     email="bob@example.com",
     created_at=datetime.now()
 ))
+```
+
+### Option 2: Start with @dataclass (recommended for new code)
+
+```python
+from dataclasses import dataclass
+from datetime import datetime
+
+@dataclass
+class User:
+    id: int
+    name: str
+    email: str
+    created_at: datetime
+
+# Create table - User is already a dataclass, no need for .dataclass()!
+users = await db.create(User, pk='id')
+
+# All operations automatically work with dataclass instances
+user = await users[1]  # Returns User instance
+print(user.name)       # IDE autocomplete works automatically!
+
+# Insert with dataclass instance
+new_user = await users.insert(User(
+    id=None,  # Auto-generated
+    name="Bob",
+    email="bob@example.com",
+    created_at=datetime.now()
+))
+
+# Mix dicts and dataclass instances as needed
+await users.insert({"name": "Charlie", "email": "charlie@example.com", "created_at": datetime.now()})
 ```
 
 ## Rich Type System
