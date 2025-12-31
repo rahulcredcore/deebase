@@ -27,7 +27,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 ## Project Status
 
-✅ **ALL 8 PHASES COMPLETE! READY FOR PRODUCTION!** 🎉
+✅ **ALL 9 PHASES COMPLETE! PRODUCTION-READY!** 🎉
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
@@ -37,6 +37,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 6 Complete** - xtra() Filtering (implemented early in Phase 3)
 ✅ **Phase 7 Complete** - Views Support
 ✅ **Phase 8 Complete** - Polish & Utilities
+✅ **Phase 9 Complete** - Transaction Support
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
@@ -53,8 +54,9 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Dynamic table access (`db.t.tablename`, `db.t['table1', 'table2']`)
 - ✅ Views support (`db.create_view()`, `db.v.viewname`, read-only operations)
 - ✅ Code generation (`dataclass_src()`, `create_mod()`, `create_mod_from_tables()`)
+- ✅ Transaction support (`db.transaction()`, atomic multi-operation commits)
 - ✅ Complete documentation (API reference, migration guide, examples)
-- ✅ 161 passing tests
+- ✅ 183 passing tests
 
 **Phase 8 Deliverables:**
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`
@@ -63,12 +65,21 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - Comprehensive Phase 8 example file demonstrating all error handling and code generation features
 - Enhanced error messages throughout with rich context
 
+**Phase 9 Deliverables:**
+- Transaction context manager: `db.transaction()` for atomic multi-operation commits
+- Automatic commit on success, rollback on any exception
+- Thread-safe implementation using Python's contextvars
+- All CRUD operations automatically participate in active transactions
+- 22 new transaction tests (183 total passing tests)
+- Comprehensive transactions.py example with 8 real-world scenarios
+- Zero breaking changes - fully backward compatible
+
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
 
 ## Basic Usage
 
-### Working Now (Phases 1-7)
+### Working Now (Phases 1-9)
 
 ```python
 from deebase import Database, Text, NotFoundError
@@ -203,6 +214,35 @@ limited = await view(limit=10)
 # Dataclass support for views
 PostViewDC = view.dataclass()
 results = await view()  # Returns dataclass instances
+
+# Transaction support (Phase 9)
+
+# Multi-operation atomic transactions
+async with db.transaction():
+    await users.insert({"name": "Alice", "balance": 100})
+    await users.insert({"name": "Bob", "balance": 50})
+    # Both commit atomically, or both rollback on error
+
+# Money transfer with automatic rollback
+async with db.transaction():
+    alice = await users.lookup(name="Alice")
+    bob = await users.lookup(name="Bob")
+    alice['balance'] -= 30
+    bob['balance'] += 30
+    await users.update(alice)
+    await users.update(bob)
+    # If any operation fails, all changes roll back
+
+# Automatic rollback on exception
+try:
+    async with db.transaction():
+        await users.insert({"name": "Charlie", "balance": 200})
+        raise ValueError("Oops!")  # All changes rolled back
+except ValueError:
+    pass
+
+# Backward compatible - operations without transactions still auto-commit
+await users.insert({"name": "Diana", "balance": 150})  # Auto-commits
 ```
 
 ## Architecture
@@ -292,9 +332,22 @@ src/deebase/
 - ✅ Dataclass support for views
 - ✅ 19 new tests (161 total passing)
 
-**Phase 8:** Polish & utilities (final phase)
+**Phase 8: Polish & Utilities** ✅ COMPLETE
+- ✅ 6 new exception types with rich context
+- ✅ Code generation utilities (dataclass_src, create_mod, create_mod_from_tables)
+- ✅ Complete API reference documentation
+- ✅ Migration guide from fastlite
+- ✅ Production-ready error handling
 
-See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 8-phase roadmap.
+**Phase 9: Transaction Support** ✅ COMPLETE
+- ✅ `db.transaction()` context manager for atomic operations
+- ✅ Automatic commit on success, rollback on exception
+- ✅ Thread-safe implementation using contextvars
+- ✅ All CRUD operations automatically participate
+- ✅ 22 new tests (183 total passing)
+- ✅ Zero breaking changes, fully backward compatible
+
+See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 9-phase roadmap.
 See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
 
 ## Examples
@@ -323,6 +376,9 @@ uv run examples/phase7_views.py
 # Phase 8: Production polish and utilities
 uv run examples/phase8_polish_utilities.py
 
+# Phase 9: Transaction support
+uv run examples/transactions.py
+
 # Complete example: Blog database with full features
 uv run examples/complete_example.py
 ```
@@ -338,6 +394,7 @@ All examples use in-memory databases and demonstrate:
 - xtra() filtering
 - Comprehensive error handling with rich exception context
 - Code generation utilities (dataclass_src, create_mod, create_mod_from_tables)
+- Transaction support for atomic multi-operation commits
 - Production-ready error handling patterns
 - Schema inspection
 - Practical usage patterns
