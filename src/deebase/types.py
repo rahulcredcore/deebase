@@ -176,3 +176,48 @@ def is_optional(python_type: type) -> bool:
     args = get_args(python_type)
     # Check if it's Union[T, None] which is what Optional[T] expands to
     return type(None) in args
+
+
+class Index:
+    """Named index definition for table creation.
+
+    Use this to create explicit indexes on table columns:
+
+    Example:
+        from deebase import Index
+
+        # Create table with indexes
+        articles = await db.create(
+            Article,
+            pk='id',
+            indexes=[
+                "slug",                                    # Simple index
+                ("author_id", "created_at"),               # Composite index
+                Index("idx_slug", "slug", unique=True),    # Named unique index
+            ]
+        )
+
+    Args:
+        name: Index name
+        *columns: Column name(s) to index
+        unique: If True, create a unique index (default False)
+    """
+
+    def __init__(self, name: str, *columns: str, unique: bool = False):
+        """Initialize an Index definition.
+
+        Args:
+            name: Index name (e.g., "idx_email")
+            *columns: Column names to index
+            unique: If True, creates a UNIQUE index
+        """
+        if not columns:
+            raise ValueError("Index requires at least one column")
+        self.name = name
+        self.columns = list(columns)
+        self.unique = unique
+
+    def __repr__(self) -> str:
+        cols = ", ".join(self.columns)
+        unique_str = ", unique=True" if self.unique else ""
+        return f'Index("{self.name}", {cols}{unique_str})'

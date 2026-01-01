@@ -28,6 +28,18 @@ uv run examples/phase7_views.py
 # Run Phase 8 example (production polish & utilities)
 uv run examples/phase8_polish_utilities.py
 
+# Run Phase 9 example (transactions)
+uv run examples/phase9_transactions.py
+
+# Run Phase 10 example (foreign keys and defaults)
+uv run examples/phase10_foreign_keys_defaults.py
+
+# Run Phase 11 example (FK navigation)
+uv run examples/phase11_fk_navigation.py
+
+# Run Phase 12 example (indexes)
+uv run examples/phase12_indexes.py
+
 # Run complete example (combined features)
 uv run examples/complete_example.py
 ```
@@ -184,15 +196,38 @@ Demonstrates Phase 8 production polish features:
 - Safe update patterns with validation
 - Safe lookup patterns returning None on error
 
+### phase12_indexes.py
+
+Demonstrates Phase 12 index features:
+- Creating tables with indexes via `indexes` parameter
+- Index class for named indexes with unique constraints
+- Simple string syntax for single-column indexes
+- Tuple syntax for composite indexes
+- Adding indexes after table creation with `create_index()`
+- Dropping indexes with `drop_index()`
+- Listing all indexes with `table.indexes`
+- Unique index constraint enforcement
+
+**Topics covered:**
+- `Index("name", "column", unique=True)` - Named index objects
+- `indexes=["col"]` - Simple string syntax (auto-named)
+- `indexes=[("col1", "col2")]` - Composite index syntax
+- `table.create_index(columns, name, unique)` - Add index after creation
+- `table.drop_index(name)` - Remove an index
+- `table.indexes` - List index metadata
+
 ### complete_example.py
 
-A realistic workflow combining all phases (1-7):
+A realistic workflow combining all phases (1-12):
 - Defines a blog database schema
-- Creates tables from Python classes
+- Creates tables with indexes and FK constraints
 - Populates data with CRUD operations
 - Queries with raw SQL and JOINs
 - Demonstrates CRUD operations
 - Enables dataclass mode for type-safe operations
+- Shows transaction handling
+- Demonstrates FK navigation
+- Shows index management
 - Shows schema inspection
 - Demonstrates practical usage patterns
 

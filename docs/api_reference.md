@@ -107,7 +107,7 @@ await db.q("CREATE TABLE products (id INT PRIMARY KEY, name TEXT)")
 await db.q("INSERT INTO products (id, name) VALUES (1, 'Widget')")
 ```
 
-#### `async db.create(cls: type, pk: str | list[str] = None, if_not_exists: bool = False, replace: bool = False) -> Table`
+#### `async db.create(cls: type, pk: str | list[str] = None, if_not_exists: bool = False, replace: bool = False, indexes: list = None) -> Table`
 
 Create a table from a Python class with type annotations.
 
@@ -128,21 +128,26 @@ Create a table from a Python class with type annotations.
 - `pk` (str | list[str], optional): Primary key column name(s). Defaults to `'id'`.
 - `if_not_exists` (bool, optional): Don't error if table already exists. Defaults to `False`.
 - `replace` (bool, optional): Drop existing table before creating. Defaults to `False`.
+- `indexes` (list, optional): List of indexes to create. Each item can be:
+  - `str`: Single column index with auto-generated name (e.g., `"slug"`)
+  - `tuple`: Composite index with auto-generated name (e.g., `("author_id", "created_at")`)
+  - `Index`: Named index with options (e.g., `Index("idx_email", "email", unique=True)`)
 
 **Returns:** `Table` - Table instance
 
 **Raises:**
-- `ValidationError`: Class has no type annotations
+- `ValidationError`: Class has no type annotations, or index column not found
 - `SchemaError`: Primary key column not found in annotations, or table already exists
 
 **Features:**
 - **Default values**: Class attributes with defaults become SQL `DEFAULT` values
 - **Foreign keys**: Use `ForeignKey[type, "table"]` type annotation
 - **Nullable**: Use `Optional[T]` for nullable columns
+- **Indexes**: Use `indexes` parameter with strings, tuples, or `Index` objects
 
 **Example:**
 ```python
-from deebase import Database, ForeignKey, Text
+from deebase import Database, ForeignKey, Index, Text
 
 # Basic table with defaults
 class User:
@@ -154,14 +159,24 @@ class User:
 
 users = await db.create(User, pk='id')
 
-# Table with foreign key
+# Table with foreign key and indexes
 class Post:
     id: int
     title: str
+    slug: str
     content: Text
     author_id: ForeignKey[int, "user"]  # FK to user.id
+    created_at: str
 
-posts = await db.create(Post, pk='id')
+posts = await db.create(
+    Post,
+    pk='id',
+    indexes=[
+        "slug",                                    # Simple index
+        ("author_id", "created_at"),               # Composite index
+        Index("idx_title_unique", "title", unique=True),  # Named unique index
+    ]
+)
 
 # Safe creation (no error if exists)
 users = await db.create(User, pk='id', if_not_exists=True)
@@ -439,6 +454,19 @@ author = await posts.fk.author_id(post)  # Returns author record or None
 ```
 
 See [get_parent()](#async-tableget_parentrecord-fk_column---dict--any--none) for the power user API.
+
+#### `table.indexes`
+
+List of indexes on this table.
+
+**Returns:** `list[dict]` - List of index definitions: `[{'name': str, 'columns': [str], 'unique': bool}, ...]`
+
+**Example:**
+```python
+print(posts.indexes)
+# [{'name': 'ix_post_slug', 'columns': ['slug'], 'unique': False},
+#  {'name': 'idx_title_unique', 'columns': ['title'], 'unique': True}]
+```
 
 ### Methods
 
@@ -726,6 +754,52 @@ Drop the table from the database.
 await users.drop()
 ```
 
+#### `async table.create_index(columns: str | list[str], name: str = None, unique: bool = False) -> None`
+
+Create an index on the table.
+
+**When to use:**
+- Adding indexes after table creation
+- Performance optimization on existing tables
+- Creating unique constraints on existing tables
+
+**When NOT to use:**
+- When creating a new table (use `indexes` parameter in `db.create()` instead)
+- Complex index types (partial indexes, expression indexes - use raw SQL)
+
+**Parameters:**
+- `columns` (str | list[str]): Column name or list of column names for composite index
+- `name` (str, optional): Index name. Auto-generated as `ix_{tablename}_{columns}` if not provided.
+- `unique` (bool, optional): Create unique index. Defaults to `False`.
+
+**Raises:**
+- `ValidationError`: Column not found in table
+
+**Example:**
+```python
+# Simple index with auto-generated name
+await users.create_index("email")  # Creates ix_users_email
+
+# Composite index with custom name
+await posts.create_index(["author_id", "created_at"], name="idx_author_date")
+
+# Unique index
+await users.create_index("username", unique=True)
+```
+
+#### `async table.drop_index(name: str) -> None`
+
+Drop an index from the table.
+
+**Parameters:**
+- `name` (str): Index name to drop
+
+**Example:**
+```python
+await users.drop_index("ix_users_email")
+await posts.drop_index("idx_author_date")
+```
+
 #### `async table.get_parent(record, fk_column) -> dict | Any | None`
 
 Navigate to a parent record via a foreign key column. This is the power user API for FK navigation.
@@ -927,7 +1001,56 @@ class Post:
 - `ForeignKey[base_type, "table"]` - References `table.id`
 - `ForeignKey[base_type, "table.column"]` - References `table.column`
 
-**Example:**
+#### `Index`
+
+Named index definition for table creation. Use this for explicit control over index names and unique constraints.
+
+```python
+from deebase import Index
+
+# Simple named index
+idx = Index("idx_email", "email")
+
+# Unique index
+idx = Index("idx_email", "email", unique=True)
+
+# Composite index
+idx = Index("idx_author_date", "author_id", "created_at")
+```
+
+**Constructor:**
+- `Index(name: str, *columns: str, unique: bool = False)`
+
+**Parameters:**
+- `name` (str): Index name
+- `*columns` (str): One or more column names to index
+- `unique` (bool, optional): Create unique index. Defaults to `False`.
+
+**Raises:**
+- `ValueError`: If no columns are provided
+
+**Example usage in `db.create()`:**
+```python
+from deebase import Index
+
+class Article:
+    id: int
+    title: str
+    slug: str
+    author_id: int
+
+articles = await db.create(
+    Article,
+    pk='id',
+    indexes=[
+        "slug",                                    # Auto-named: ix_article_slug
+        ("author_id", "created_at"),               # Auto-named: ix_article_author_id_created_at
+        Index("idx_title", "title", unique=True),  # Named unique index
+    ]
+)
+```
+
+**Example (ForeignKey):**
 ```python
 from deebase import Database, ForeignKey
 
@@ -974,6 +1097,7 @@ Python type → SQLAlchemy type → Database column:
 | `datetime.time` | `Time` | TIME |
 | `Optional[T]` | `nullable=True` | NULL-able column |
 | `ForeignKey[T, "table"]` | `T` + FK constraint | FK to table.id |
+| `Index` | `sa.Index` | Database index (not a column type) |
 
 ---
 
@@ -1336,6 +1460,40 @@ author = await authors[1]
 author_posts = await authors.get_children(author, "post", "author_id")
 for p in author_posts:
     print(p['title'])
+```
+
+### Indexes
+
+```python
+from deebase import Database, Index
+
+class Article:
+    id: int
+    title: str
+    slug: str
+    author_id: int
+    created_at: str
+
+# Create table with indexes
+articles = await db.create(
+    Article,
+    pk='id',
+    indexes=[
+        "slug",                                    # Simple index
+        ("author_id", "created_at"),               # Composite index
+        Index("idx_title", "title", unique=True),  # Named unique index
+    ]
+)
+
+# List indexes
+for idx in articles.indexes:
+    print(f"{idx['name']}: {idx['columns']} (unique={idx['unique']})")
+
+# Add index after table creation
+await articles.create_index("created_at")
+
+# Drop index
+await articles.drop_index("ix_article_created_at")
 ```
 
 ---

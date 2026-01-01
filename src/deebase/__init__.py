@@ -13,7 +13,7 @@ from .exceptions import (
     ValidationError,
     SchemaError,
 )
-from .types import Text, ForeignKey
+from .types import Text, ForeignKey, Index
 from .dataclass_utils import dataclass_src, create_mod, create_mod_from_tables
 
 __version__ = "0.1.0"
@@ -33,6 +33,7 @@ __all__ = [
     "SchemaError",
     "Text",
     "ForeignKey",
+    "Index",
     "dataclass_src",
     "create_mod",
     "create_mod_from_tables",

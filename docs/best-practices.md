@@ -10,6 +10,7 @@ This guide helps you make informed decisions when using DeeBase, explaining the 
 - [Using Views for Joins and CTEs](#using-views-for-joins-and-ctes)
 - [Foreign Keys and Relationships](#foreign-keys-and-relationships)
 - [Default Values](#default-values)
+- [Indexes](#indexes)
 - [Maintaining Consistency](#maintaining-consistency)
 - [Error Handling Strategy](#error-handling-strategy)
 - [Performance Considerations](#performance-considerations)
@@ -713,6 +714,184 @@ class Article:
 - `None` - Means nullable, not a default
 
 Mutable defaults still work Python-side when creating instances—they're just not stored as SQL defaults.
+
+---
+
+## Indexes
+
+Indexes improve query performance on frequently accessed columns. DeeBase provides multiple ways to create and manage indexes.
+
+### When to Create Indexes
+
+**Create indexes on columns you:**
+- Filter frequently (`WHERE column = value`)
+- Sort by (`ORDER BY column`)
+- Join on (`JOIN ... ON table.column = other.column`)
+- Use in unique constraints (emails, slugs, usernames)
+
+**Don't create indexes on:**
+- Columns you rarely query
+- Very small tables (< 1000 rows)
+- Columns with low cardinality (boolean, status with 2-3 values)
+- Every column (indexes have storage and write overhead)
+
+### Index Creation Patterns
+
+#### Pattern 1: Indexes at Table Creation (Recommended)
+
+Define indexes when creating the table for the best visibility:
+
+```python
+from deebase import Index
+
+class Article:
+    id: int
+    title: str
+    slug: str
+    author_id: int
+    status: str
+    created_at: str
+
+articles = await db.create(
+    Article,
+    pk='id',
+    indexes=[
+        Index("idx_slug", "slug", unique=True),    # Unique for URL lookups
+        ("author_id", "created_at"),               # Composite for author queries
+        "status",                                   # Filter by status
+    ]
+)
+```
+
+**Benefits:**
+- Schema and indexes defined together
+- Version controlled with your code
+- Easy to see all indexes at a glance
+
+#### Pattern 2: Indexes After Creation
+
+Add indexes to existing tables:
+
+```python
+# Table already exists
+articles = db.t.articles
+
+# Add indexes as needed
+await articles.create_index("category_id")
+await articles.create_index(["author_id", "published_at"], name="idx_author_published")
+await articles.create_index("email", unique=True)
+```
+
+**Use this when:**
+- Working with existing databases
+- Adding indexes based on query analysis
+- Schema is managed by migration tools
+
+#### Pattern 3: Hybrid (Raw SQL for Advanced Indexes)
+
+For partial indexes or expression indexes not supported by the `Index` class:
+
+```python
+# Create table with DeeBase
+articles = await db.create(Article, pk='id')
+
+# Add advanced index with raw SQL
+await db.q("CREATE INDEX idx_published ON article(created_at) WHERE status = 'published'")
+await db.q("CREATE INDEX idx_title_lower ON article(LOWER(title))")
+```
+
+### Index Naming Conventions
+
+**Auto-generated names** follow the pattern `ix_{tablename}_{columns}`:
+
+| Index Definition | Generated Name |
+|------------------|----------------|
+| `"slug"` | `ix_article_slug` |
+| `("author_id", "created_at")` | `ix_article_author_id_created_at` |
+
+**Named indexes** - Use clear, descriptive names:
+
+```python
+# ✅ Good names
+Index("idx_user_email_unique", "email", unique=True)
+Index("idx_post_author_date", "author_id", "created_at")
+
+# ❌ Avoid generic names
+Index("idx1", "email")
+Index("index", "author_id")
+```
+
+### Unique Indexes vs Primary Keys
+
+**Use unique indexes for:**
+- Secondary unique columns (email, slug, username)
+- Business-level uniqueness constraints
+
+**Use primary keys for:**
+- Record identification
+- Foreign key relationships
+
+```python
+class User:
+    id: int              # PK - for FK relationships
+    email: str           # Unique index - business constraint
+    username: str        # Unique index - business constraint
+
+users = await db.create(
+    User,
+    pk='id',
+    indexes=[
+        Index("idx_email", "email", unique=True),
+        Index("idx_username", "username", unique=True),
+    ]
+)
+```
+
+### Composite Index Order Matters
+
+For composite indexes, **column order affects query optimization**:
+
+```python
+# Index on (author_id, created_at)
+articles = await db.create(
+    Article,
+    pk='id',
+    indexes=[("author_id", "created_at")]
+)
+
+# ✅ Uses the index
+await articles.lookup(author_id=1)                      # First column
+await articles.lookup(author_id=1, created_at="2024")  # Both columns
+
+# ❌ Cannot use the index efficiently
+await articles.lookup(created_at="2024")               # Second column only
+```
+
+**Rule:** Put the most selective (filtered) column first, or order by how you query.
+
+### Listing and Managing Indexes
+
+```python
+# List all indexes
+for idx in articles.indexes:
+    print(f"{idx['name']}: {idx['columns']} (unique={idx['unique']})")
+
+# Drop an index
+await articles.drop_index("ix_article_status")
+```
+
+### Performance Trade-offs
+
+**Indexes speed up reads but slow down writes:**
+
+| Operation | Effect |
+|-----------|--------|
+| SELECT with WHERE | ✅ Faster |
+| INSERT | ❌ Slower (must update index) |
+| UPDATE | ❌ Slower (may update index) |
+| DELETE | ❌ Slower (must update index) |
+
+**Best practice:** Only index columns you actually query. Measure before and after adding indexes.
 
 ---
 

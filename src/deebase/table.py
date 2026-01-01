@@ -718,6 +718,102 @@ class Table:
         # TODO: Implement in Phase 8
         raise NotImplementedError("transform() will be implemented in Phase 8")
 
+    @property
+    def indexes(self) -> list[dict]:
+        """List of indexes on this table.
+
+        Returns:
+            List of dicts with 'name', 'columns', and 'unique' keys.
+
+        Example:
+            >>> articles.indexes
+            [{'name': 'ix_article_title', 'columns': ['title'], 'unique': False}]
+        """
+        result = []
+        for index in self._sa_table.indexes:
+            result.append({
+                'name': index.name,
+                'columns': [col.name for col in index.columns],
+                'unique': index.unique
+            })
+        return result
+
+    async def create_index(
+        self,
+        columns: str | list[str],
+        name: Optional[str] = None,
+        unique: bool = False
+    ) -> None:
+        """Create an index on the table.
+
+        Args:
+            columns: Column name (str) or list of column names for composite index
+            name: Index name. Auto-generated if not provided.
+            unique: If True, create a unique index
+
+        Example:
+            >>> await articles.create_index("title")
+            >>> await articles.create_index(["author_id", "created_at"], name="idx_author_date")
+            >>> await articles.create_index("email", unique=True)
+
+        Raises:
+            ValidationError: If column doesn't exist in table
+        """
+        # Normalize columns to list
+        if isinstance(columns, str):
+            columns = [columns]
+
+        # Validate columns exist
+        for col_name in columns:
+            if col_name not in self._sa_table.c:
+                raise ValidationError(
+                    f"Column '{col_name}' not found in table '{self._name}'",
+                    field=col_name
+                )
+
+        # Auto-generate name if not provided
+        if name is None:
+            name = f"ix_{self._name}_{'_'.join(columns)}"
+
+        # Get SQLAlchemy column objects
+        sa_columns = [self._sa_table.c[col_name] for col_name in columns]
+
+        # Create and execute the index
+        sa_index = sa.Index(name, *sa_columns, unique=unique)
+
+        async with self._session_scope() as (session, should_manage):
+            try:
+                await session.execute(sa.schema.CreateIndex(sa_index))
+                if should_manage:
+                    await session.commit()
+            except Exception:
+                if should_manage:
+                    await session.rollback()
+                raise
+
+    async def drop_index(self, name: str) -> None:
+        """Drop an index from the table.
+
+        Args:
+            name: Name of the index to drop
+
+        Example:
+            >>> await articles.drop_index("idx_author_date")
+
+        Note:
+            Uses DROP INDEX syntax. The index must exist.
+        """
+        async with self._session_scope() as (session, should_manage):
+            try:
+                # Use raw SQL for DROP INDEX as SQLAlchemy doesn't have a direct DDL
+                await session.execute(sa.text(f"DROP INDEX {name}"))
+                if should_manage:
+                    await session.commit()
+            except Exception:
+                if should_manage:
+                    await session.rollback()
+                raise
+
     async def get_parent(self, record: dict | Any, fk_column: str) -> dict | Any | None:
         """Navigate to parent record via a foreign key column.
 

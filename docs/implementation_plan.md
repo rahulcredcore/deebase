@@ -938,9 +938,9 @@ await view.drop()
 
 ---
 
-### Phase 11: FK Relationship Navigation
+### Phase 11: FK Relationship Navigation ✅ COMPLETE
 
-**Status:** Planned
+**Status:** Complete
 
 **Goal:** Enable navigation from tables to related records via foreign keys, with clean syntax for forward navigation and power-user API for reverse lookups.
 
@@ -1053,9 +1053,9 @@ user_posts = await users.get_children(user, posts, "author_id")
 
 ---
 
-### Phase 12: Indexes
+### Phase 12: Indexes ✅ COMPLETE
 
-**Status:** Planned
+**Status:** Complete
 
 **Goal:** Support explicit indexes for query optimization.
 

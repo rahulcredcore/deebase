@@ -27,7 +27,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 ## Project Status
 
-✅ **Phases 1-11 Complete** - Production-ready with FK navigation
+✅ **Phases 1-12 Complete** - Production-ready with indexes
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
@@ -40,10 +40,11 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 9 Complete** - Transaction Support
 ✅ **Phase 10 Complete** - Foreign Keys & Defaults
 ✅ **Phase 11 Complete** - FK Navigation
+✅ **Phase 12 Complete** - Indexes
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
-- ✅ Enhanced type system (Text, JSON, ForeignKey, all basic types)
+- ✅ Enhanced type system (Text, JSON, ForeignKey, Index, all basic types)
 - ✅ Complete dataclass utilities
 - ✅ Table creation from Python classes with `db.create()`
 - ✅ Foreign key support via `ForeignKey[T, "table"]` type annotation
@@ -60,8 +61,9 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Code generation (`dataclass_src()`, `create_mod()`, `create_mod_from_tables()`)
 - ✅ Transaction support (`db.transaction()`, atomic multi-operation commits)
 - ✅ FK navigation (`table.fk.column()`, `get_parent()`, `get_children()`)
+- ✅ Indexes support (`Index` class, `indexes` parameter, `create_index()`, `drop_index()`)
 - ✅ Complete documentation (API reference, migration guide, examples)
-- ✅ 250 passing tests
+- ✅ 280 passing tests
 
 **Phase 8 Deliverables:**
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`
@@ -98,15 +100,26 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - Works with both created and reflected tables
 - 26 new tests (250 total passing tests - includes 5 views-for-joins tests)
 
+**Phase 12 Deliverables:**
+- `Index` class for named indexes with unique constraint support
+- `indexes` parameter in `db.create()` for table-creation-time indexes
+- Three index syntax options: string, tuple, and Index object
+- Auto-generated index names following `ix_tablename_column` convention
+- `table.create_index(columns, name, unique)` method for post-creation indexes
+- `table.drop_index(name)` method for removing indexes
+- `table.indexes` property listing all indexes on a table
+- Unique index constraint enforcement
+- 30 new tests (280 total passing tests)
+
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
 
 ## Basic Usage
 
-### Working Now (Phases 1-11)
+### Working Now (Phases 1-12)
 
 ```python
-from deebase import Database, Text, NotFoundError
+from deebase import Database, Text, Index, NotFoundError
 from datetime import datetime
 
 # Create database connection
@@ -327,6 +340,38 @@ print(posts.foreign_keys)
 # Safe navigation - returns None for null FKs or dangling references
 draft = await posts.insert({"author_id": None, "title": "Draft"})
 author = await posts.fk.author_id(draft)  # Returns None
+
+# Indexes (Phase 12)
+
+from deebase import Index
+
+class Article:
+    id: int
+    title: str
+    slug: str
+    author_id: int
+    created_at: str
+
+# Create table with indexes
+articles = await db.create(
+    Article,
+    pk='id',
+    indexes=[
+        "slug",                                    # Simple index (auto-named)
+        ("author_id", "created_at"),               # Composite index
+        Index("idx_title", "title", unique=True),  # Named unique index
+    ]
+)
+
+# Add index after table creation
+await articles.create_index("created_at")
+
+# List all indexes
+for idx in articles.indexes:
+    print(f"{idx['name']}: {idx['columns']} (unique={idx['unique']})")
+
+# Drop an index
+await articles.drop_index("ix_article_created_at")
 ```
 
 ## Architecture
@@ -448,7 +493,17 @@ src/deebase/
 - ✅ Respects target table's dataclass setting
 - ✅ 26 new tests (250 total passing - includes 5 views-for-joins tests)
 
-See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 11-phase roadmap.
+**Phase 12: Indexes** ✅ COMPLETE
+- ✅ `Index` class for named indexes
+- ✅ `indexes` parameter in `db.create()`
+- ✅ Three syntax options: string, tuple, Index object
+- ✅ Auto-generated index names (`ix_tablename_column`)
+- ✅ `table.create_index(columns, name, unique)` method
+- ✅ `table.drop_index(name)` method
+- ✅ `table.indexes` property
+- ✅ 30 new tests (280 total passing)
+
+See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 12-phase roadmap.
 See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
 
 ## Examples
@@ -488,6 +543,9 @@ uv run examples/phase10_foreign_keys_defaults.py
 
 # Phase 11: FK navigation
 uv run examples/phase11_fk_navigation.py
+
+# Phase 12: Indexes
+uv run examples/phase12_indexes.py
 
 # Complete example: Blog database with full features
 uv run examples/complete_example.py

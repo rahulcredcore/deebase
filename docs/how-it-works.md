@@ -3032,6 +3032,269 @@ results = await db.q("""
 
 ---
 
+## 15. Index Support (Phase 12)
+
+Phase 12 adds explicit index support for query optimization using SQLAlchemy's Index class.
+
+### Index Class Implementation
+
+**What it does:**
+Provides a clean way to define named indexes with optional uniqueness constraints.
+
+**Implementation:**
+```python
+# In types.py
+class Index:
+    """Named index definition for table creation."""
+
+    def __init__(self, name: str, *columns: str, unique: bool = False):
+        if not columns:
+            raise ValueError("Index requires at least one column")
+        self.name = name
+        self.columns = list(columns)
+        self.unique = unique
+```
+
+**Key features:**
+- Takes variable number of column names (`*columns`)
+- Optional `unique=True` for unique constraints
+- Simple data class to hold index metadata
+
+### Index Specification Options
+
+**Three syntaxes in `db.create()`:**
+
+```python
+indexes=[
+    "slug",                                    # String: auto-named
+    ("author_id", "created_at"),               # Tuple: composite, auto-named
+    Index("idx_title", "title", unique=True),  # Index: named with options
+]
+```
+
+**Processing logic:**
+```python
+# In Database._create_indexes()
+for idx_spec in indexes:
+    if isinstance(idx_spec, str):
+        # Single column, auto-generated name
+        columns = [idx_spec]
+        name = f"ix_{table_name}_{idx_spec}"
+        unique = False
+    elif isinstance(idx_spec, tuple):
+        # Composite index, auto-generated name
+        columns = list(idx_spec)
+        name = f"ix_{table_name}_{'_'.join(columns)}"
+        unique = False
+    elif isinstance(idx_spec, Index):
+        # Named index with options
+        columns = idx_spec.columns
+        name = idx_spec.name
+        unique = idx_spec.unique
+```
+
+### SQLAlchemy Index Creation
+
+**Building and executing indexes:**
+```python
+from sqlalchemy import Index as SAIndex
+from sqlalchemy.schema import CreateIndex
+
+# Get SQLAlchemy column objects
+sa_columns = [sa_table.c[col_name] for col_name in columns]
+
+# Create SQLAlchemy Index object
+sa_index = SAIndex(name, *sa_columns, unique=unique)
+
+# Execute CREATE INDEX
+async with self._session() as session:
+    await session.execute(CreateIndex(sa_index))
+```
+
+**Generated SQL:**
+```sql
+CREATE INDEX ix_article_slug ON article (slug)
+CREATE INDEX ix_article_author_id_created_at ON article (author_id, created_at)
+CREATE UNIQUE INDEX idx_title ON article (title)
+```
+
+### table.create_index() Implementation
+
+**Adding indexes after table creation:**
+```python
+async def create_index(
+    self,
+    columns: str | list[str],
+    name: str = None,
+    unique: bool = False
+) -> None:
+    # Normalize to list
+    if isinstance(columns, str):
+        columns = [columns]
+
+    # Validate columns exist
+    for col_name in columns:
+        if col_name not in self._sa_table.c:
+            raise ValidationError(f"Column '{col_name}' not found")
+
+    # Auto-generate name if needed
+    if name is None:
+        name = f"ix_{self._name}_{'_'.join(columns)}"
+
+    # Get column objects
+    sa_columns = [self._sa_table.c[col_name] for col_name in columns]
+
+    # Create and execute
+    sa_index = SAIndex(name, *sa_columns, unique=unique)
+    async with self._session_scope() as (session, should_manage):
+        await session.execute(CreateIndex(sa_index))
+        if should_manage:
+            await session.commit()
+```
+
+### table.drop_index() Implementation
+
+**Removing indexes:**
+```python
+async def drop_index(self, name: str) -> None:
+    async with self._session_scope() as (session, should_manage):
+        # Use raw SQL for DROP INDEX
+        await session.execute(sa.text(f"DROP INDEX {name}"))
+        if should_manage:
+            await session.commit()
+```
+
+**Why raw SQL?**
+SQLAlchemy doesn't have a direct `DropIndex` DDL construct like `CreateIndex`. Using `sa.text()` works across both SQLite and PostgreSQL.
+
+### table.indexes Property
+
+**Listing indexes from SQLAlchemy metadata:**
+```python
+@property
+def indexes(self) -> list[dict]:
+    result = []
+    for index in self._sa_table.indexes:
+        result.append({
+            'name': index.name,
+            'columns': [col.name for col in index.columns],
+            'unique': index.unique
+        })
+    return result
+```
+
+**Key insight:** SQLAlchemy's `Table.indexes` attribute tracks all indexes created via `SAIndex`. This works because indexes created with `CreateIndex` are automatically registered with the table metadata.
+
+### Index Auto-Naming Convention
+
+**Pattern:** `ix_{tablename}_{column1}_{column2}...`
+
+Examples:
+| Index Specification | Generated Name |
+|---------------------|----------------|
+| `"title"` | `ix_article_title` |
+| `("author_id", "created_at")` | `ix_article_author_id_created_at` |
+| `Index("custom", "col")` | `custom` (uses provided name) |
+
+### Unique Index Enforcement
+
+**How unique indexes work:**
+```python
+# Create unique index
+await users.create_index("email", unique=True)
+
+# Insert first user
+await users.insert({"id": 1, "email": "alice@example.com"})
+
+# Duplicate raises IntegrityError
+try:
+    await users.insert({"id": 2, "email": "alice@example.com"})
+except IntegrityError:
+    print("Email already exists")
+```
+
+**Database enforces uniqueness:**
+- SQLite: `UNIQUE constraint failed`
+- PostgreSQL: `duplicate key value violates unique constraint`
+
+DeeBase catches these and re-raises as `IntegrityError`.
+
+### Why Not Auto-Create Indexes?
+
+**Design decision:** Indexes are opt-in, not automatic.
+
+**Reasoning:**
+1. **Write performance**: Indexes slow down INSERT/UPDATE/DELETE
+2. **Storage**: Indexes consume disk space
+3. **Choice**: Developers should choose what to index based on query patterns
+4. **FK columns**: Even FK columns aren't auto-indexed (database-specific behavior)
+
+### Performance Considerations
+
+**Index trade-offs:**
+| Operation | With Index | Without Index |
+|-----------|------------|---------------|
+| SELECT WHERE | O(log n) | O(n) |
+| INSERT | Slower (update index) | Faster |
+| UPDATE | Slower if indexed col | Normal |
+| DELETE | Slower (update index) | Normal |
+
+**Best practices:**
+- Index columns used in WHERE clauses
+- Index columns used in ORDER BY
+- Index FK columns for JOIN performance
+- Don't over-index (measure actual queries)
+
+### Complete Index Flow
+
+```python
+# User code
+class Article:
+    id: int
+    title: str
+    slug: str
+
+articles = await db.create(
+    Article,
+    pk='id',
+    indexes=[
+        Index("idx_slug", "slug", unique=True),
+        "title"
+    ]
+)
+```
+
+**Internal flow:**
+```
+1. db.create() builds table
+   ↓
+2. Table created in database
+   ↓
+3. _create_indexes() called with indexes list
+   ↓
+4. For each index spec:
+   ├─ Parse specification (str/tuple/Index)
+   ├─ Validate columns exist
+   ├─ Build SAIndex object
+   └─ Execute CreateIndex
+   ↓
+5. Return Table (indexes now exist in DB)
+```
+
+**Generated SQL:**
+```sql
+CREATE TABLE article (
+    id INTEGER NOT NULL,
+    title VARCHAR NOT NULL,
+    slug VARCHAR NOT NULL,
+    PRIMARY KEY (id)
+);
+CREATE UNIQUE INDEX idx_slug ON article (slug);
+CREATE INDEX ix_article_title ON article (title);
+```
+
+---
+
 ## Key Takeaways
 
 1. **SQLAlchemy Core, Not ORM**: We use Tables and Columns directly, not ORM models

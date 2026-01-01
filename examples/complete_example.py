@@ -1,7 +1,7 @@
 """
 Complete Example: Building a Blog Database
 
-This example showcases ALL DeeBase capabilities from Phases 1-11:
+This example showcases ALL DeeBase capabilities from Phases 1-12:
 - Phase 1: Raw SQL queries
 - Phase 2: Table creation from Python classes
 - Phase 3: CRUD operations with rich types
@@ -13,6 +13,7 @@ This example showcases ALL DeeBase capabilities from Phases 1-11:
 - Phase 9: Transactions for atomic operations
 - Phase 10: Foreign keys and default values
 - Phase 11: FK relationship navigation
+- Phase 12: Indexes for query optimization
 """
 
 import asyncio
@@ -20,7 +21,7 @@ from typing import Optional
 from datetime import datetime
 from dataclasses import dataclass
 from deebase import (
-    Database, Text, ForeignKey,
+    Database, Text, ForeignKey, Index,
     NotFoundError, IntegrityError, ValidationError
 )
 
@@ -28,7 +29,7 @@ from deebase import (
 async def main():
     print("=" * 70)
     print("Complete Example: Full-Featured Blog Database")
-    print("Showcasing ALL DeeBase capabilities (Phases 1-11)")
+    print("Showcasing ALL DeeBase capabilities (Phases 1-12)")
     print("=" * 70)
     print()
 
@@ -86,24 +87,47 @@ async def main():
     print()
 
     # =========================================================================
-    # Phase 2: Table Creation
+    # Phase 2 + 12: Table Creation with Indexes
     # =========================================================================
-    print("2. Creating tables with if_not_exists (Phase 2 + 10)")
+    print("2. Creating tables with indexes (Phase 2, 10, 12)")
     print("-" * 70)
 
     # Create tables with if_not_exists for safety
-    authors = await db.create(Author, pk='id', if_not_exists=True)
-    categories = await db.create(Category, pk='id', if_not_exists=True)
-    posts = await db.create(Post, pk='id', if_not_exists=True)
-    comments = await db.create(Comment, pk='id', if_not_exists=True)
+    # Authors with email unique index
+    authors = await db.create(
+        Author, pk='id', if_not_exists=True,
+        indexes=[Index("idx_author_email", "email", unique=True)]
+    )
+
+    # Categories with slug index for URL lookups
+    categories = await db.create(
+        Category, pk='id', if_not_exists=True,
+        indexes=["slug"]  # Simple string syntax for non-unique index
+    )
+
+    # Posts with multiple indexes for common queries
+    posts = await db.create(
+        Post, pk='id', if_not_exists=True,
+        indexes=[
+            Index("idx_post_slug", "slug", unique=True),  # Unique slugs for URLs
+            ("author_id", "created_at"),                   # Composite for author posts by date
+            "published",                                   # For filtering published posts
+        ]
+    )
+
+    # Comments with composite index for post comments by date
+    comments = await db.create(
+        Comment, pk='id', if_not_exists=True,
+        indexes=[("post_id", "created_at")]
+    )
 
     # Enable FK enforcement in SQLite
     await db.q("PRAGMA foreign_keys = ON")
 
-    print(f"   Created: {authors._name} (with status default)")
-    print(f"   Created: {categories._name}")
-    print(f"   Created: {posts._name} (with FK constraints + defaults)")
-    print(f"   Created: {comments._name} (with FK constraint + default)")
+    print(f"   Created: {authors._name} (with email unique index)")
+    print(f"   Created: {categories._name} (with slug index)")
+    print(f"   Created: {posts._name} (with slug unique, author+date composite, published)")
+    print(f"   Created: {comments._name} (with post+date composite index)")
     print("   Enabled: Foreign key enforcement")
     print()
 
@@ -439,9 +463,33 @@ async def main():
     print()
 
     # =========================================================================
+    # Phase 12: Index Management
+    # =========================================================================
+    print("12. Index management (Phase 12)")
+    print("-" * 70)
+
+    # List all indexes on the posts table
+    print("   Indexes on posts table:")
+    for idx in posts.indexes:
+        unique_str = " (UNIQUE)" if idx['unique'] else ""
+        print(f"      {idx['name']}: {idx['columns']}{unique_str}")
+
+    # Add an index after table creation
+    await authors.create_index("name", name="idx_author_name")
+    print(f"\n   Added index after table creation: idx_author_name")
+    print(f"   Authors now has {len(authors.indexes)} indexes")
+
+    # Show the new index
+    print("   Author indexes:")
+    for idx in authors.indexes:
+        unique_str = " (UNIQUE)" if idx['unique'] else ""
+        print(f"      {idx['name']}: {idx['columns']}{unique_str}")
+    print()
+
+    # =========================================================================
     # Schema Inspection
     # =========================================================================
-    print("12. Schema inspection")
+    print("13. Schema inspection")
     print("-" * 70)
     print("\nPost table schema (showing FK constraints and defaults):")
     print(posts.schema)
@@ -450,7 +498,7 @@ async def main():
     # =========================================================================
     # Cleanup
     # =========================================================================
-    print("13. Cleanup")
+    print("14. Cleanup")
     print("-" * 70)
     await published_view.drop()
     await db.v.author_stats.drop()
@@ -466,7 +514,7 @@ async def main():
 
     print("=" * 70)
     print("Complete example finished successfully!")
-    print("All 11 phases demonstrated.")
+    print("All 12 phases demonstrated.")
     print("=" * 70)
 
 

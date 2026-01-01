@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from .table import Table
 from .view import View
-from .types import python_type_to_sqlalchemy, is_optional
+from .types import python_type_to_sqlalchemy, is_optional, Index
 from .dataclass_utils import extract_annotations
 from .exceptions import (
     ConnectionError as DeeBaseConnectionError,
@@ -139,6 +139,7 @@ class Database:
         pk: Optional[str | list[str]] = None,
         if_not_exists: bool = False,
         replace: bool = False,
+        indexes: Optional[list[str | tuple[str, ...] | Index]] = None,
     ) -> Table:
         """Create a table from a Python class with type annotations.
 
@@ -147,6 +148,10 @@ class Database:
             pk: Primary key column name(s). If None, uses 'id' by default.
             if_not_exists: If True, don't error if table already exists
             replace: If True, drop existing table before creating
+            indexes: List of indexes to create. Each item can be:
+                - str: Single column index with auto-generated name
+                - tuple: Composite index with auto-generated name
+                - Index: Named index with optional unique constraint
 
         Returns:
             Table instance for the created table
@@ -158,12 +163,16 @@ class Database:
             ...     status: str = "active"  # Default value
             >>> users = await db.create(User, pk='id')
 
-            >>> from deebase import ForeignKey
+            >>> from deebase import ForeignKey, Index
             >>> class Post:
             ...     id: int
             ...     author_id: ForeignKey[int, "user"]  # FK to user.id
             ...     title: str
-            >>> posts = await db.create(Post, pk='id')
+            >>> posts = await db.create(Post, pk='id', indexes=[
+            ...     "title",                                # Simple index
+            ...     ("author_id", "created_at"),            # Composite index
+            ...     Index("idx_title_unique", "title", unique=True),  # Named unique index
+            ... ])
         """
         from .dataclass_utils import extract_annotations, extract_defaults
         from .types import python_type_to_sqlalchemy, is_optional, is_foreign_key, get_foreign_key_info
@@ -312,6 +321,10 @@ class Database:
                         table_name=table_name
                     ) from e
                 raise
+
+        # Create indexes if specified
+        if indexes:
+            await self._create_indexes(table_name, sa_table, indexes, annotations)
 
         # Create Table instance with the class as the dataclass
         # (fk_metadata was built earlier, before the if_not_exists check)
@@ -545,6 +558,60 @@ class Database:
                 'references': ref_full
             })
         return fk_metadata
+
+    async def _create_indexes(
+        self,
+        table_name: str,
+        sa_table: sa.Table,
+        indexes: list[str | tuple[str, ...] | Index],
+        annotations: dict[str, type]
+    ) -> None:
+        """Create indexes on a table.
+
+        Args:
+            table_name: Name of the table
+            sa_table: SQLAlchemy Table object
+            indexes: List of index specifications
+            annotations: Class annotations (for column validation)
+        """
+        for idx_spec in indexes:
+            # Parse the index specification
+            if isinstance(idx_spec, str):
+                # Single column index with auto-generated name
+                columns = [idx_spec]
+                name = f"ix_{table_name}_{idx_spec}"
+                unique = False
+            elif isinstance(idx_spec, tuple):
+                # Composite index with auto-generated name
+                columns = list(idx_spec)
+                name = f"ix_{table_name}_{'_'.join(columns)}"
+                unique = False
+            elif isinstance(idx_spec, Index):
+                # Named index with options
+                columns = idx_spec.columns
+                name = idx_spec.name
+                unique = idx_spec.unique
+            else:
+                raise ValidationError(
+                    f"Invalid index specification: {idx_spec}. "
+                    f"Expected str, tuple, or Index."
+                )
+
+            # Validate that columns exist
+            for col_name in columns:
+                if col_name not in annotations:
+                    raise ValidationError(
+                        f"Index column '{col_name}' not found in table '{table_name}'",
+                        field=col_name
+                    )
+
+            # Get SQLAlchemy column objects
+            sa_columns = [sa_table.c[col_name] for col_name in columns]
+
+            # Create and execute the index
+            sa_index = sa.Index(name, *sa_columns, unique=unique)
+            async with self._session() as session:
+                await session.execute(sa.schema.CreateIndex(sa_index))
 
     async def close(self) -> None:
         """Close the database connection and dispose of the engine."""

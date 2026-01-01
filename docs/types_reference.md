@@ -130,6 +130,66 @@ except IntegrityError as e:
     print(f"FK violation: {e.constraint}")
 ```
 
+### Index (Query Optimization)
+
+Use `Index` to create named indexes for query optimization:
+
+```python
+from deebase import Index
+
+# Named unique index
+idx = Index("idx_email", "email", unique=True)
+
+# Named composite index
+idx = Index("idx_author_date", "author_id", "created_at")
+
+# Use in db.create()
+articles = await db.create(
+    Article,
+    pk='id',
+    indexes=[
+        "slug",                                    # Auto-named: ix_article_slug
+        ("author_id", "created_at"),               # Auto-named composite
+        Index("idx_title", "title", unique=True),  # Named unique index
+    ]
+)
+```
+
+**Constructor:**
+- `Index(name: str, *columns: str, unique: bool = False)`
+
+**Index specification options in `db.create()`:**
+- `"column"` - Single column index with auto-generated name (`ix_tablename_column`)
+- `("col1", "col2")` - Composite index with auto-generated name
+- `Index("name", "col")` - Named index
+- `Index("name", "col", unique=True)` - Named unique index
+- `Index("name", "col1", "col2")` - Named composite index
+
+**Database mapping:**
+- Creates a `CREATE INDEX` statement after table creation
+- Unique indexes create `UNIQUE INDEX` constraints
+- Works identically on SQLite and PostgreSQL
+
+**Managing indexes after table creation:**
+```python
+# Add index
+await table.create_index("column")
+await table.create_index(["col1", "col2"], name="idx_custom")
+await table.create_index("email", unique=True)
+
+# List indexes
+for idx in table.indexes:
+    print(f"{idx['name']}: {idx['columns']} (unique={idx['unique']})")
+
+# Drop index
+await table.drop_index("idx_custom")
+```
+
+**Important notes:**
+- Index is NOT a column type - it's used in the `indexes` parameter of `db.create()`
+- Indexes improve read performance but slow down writes
+- Unique indexes enforce uniqueness constraints (raise `IntegrityError` on duplicates)
+
 ### Default Values
 
 Use Python class defaults for SQL `DEFAULT` values:

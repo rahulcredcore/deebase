@@ -4,7 +4,7 @@
 
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![SQLAlchemy 2.0+](https://img.shields.io/badge/sqlalchemy-2.0+-green.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/tests-250%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-280%20passing-brightgreen.svg)](#)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#)
 
 DeeBase provides a simple, intuitive interface for async database operations in Python. Built on SQLAlchemy, it combines the ergonomics of [fastlite](https://fastlite.answer.ai/) with full async/await support and multi-database compatibility.
@@ -24,6 +24,7 @@ DeeBase provides a simple, intuitive interface for async database operations in 
 - **💾 Transactions** - Atomic multi-operation commits with rollback
 - **🎨 Error Handling** - 6 specific exception types with rich context
 - **📤 Code Generation** - Export schemas as Python dataclasses
+- **📊 Indexes** - Query optimization with named and unique indexes
 
 ## Quick Start
 
@@ -242,6 +243,44 @@ draft = await posts.insert({"author_id": None, "title": "Draft"})
 author = await posts.fk.author_id(draft)  # Returns None
 ```
 
+## Indexes
+
+Create indexes to optimize query performance:
+
+```python
+from deebase import Database, Index
+
+class Article:
+    id: int
+    title: str
+    slug: str
+    author_id: int
+    created_at: str
+
+# Create table with indexes
+articles = await db.create(
+    Article,
+    pk='id',
+    indexes=[
+        "slug",                                    # Simple index (auto-named)
+        ("author_id", "created_at"),               # Composite index
+        Index("idx_title", "title", unique=True),  # Named unique index
+    ]
+)
+
+# Add indexes after table creation
+await articles.create_index("author_id")
+await articles.create_index(["author_id", "created_at"], name="idx_author_date")
+await articles.create_index("slug", unique=True)
+
+# List indexes
+for idx in articles.indexes:
+    print(f"{idx['name']}: {idx['columns']} (unique={idx['unique']})")
+
+# Drop index
+await articles.drop_index("idx_author_date")
+```
+
 ## Error Handling
 
 DeeBase provides specific exception types with rich context:
@@ -368,6 +407,7 @@ Runnable examples are available in the [`examples/`](examples/) folder:
 - **[phase9_transactions.py](examples/phase9_transactions.py)** - Multi-operation atomic transactions
 - **[phase10_foreign_keys_defaults.py](examples/phase10_foreign_keys_defaults.py)** - Foreign keys & defaults
 - **[phase11_fk_navigation.py](examples/phase11_fk_navigation.py)** - FK relationship navigation
+- **[phase12_indexes.py](examples/phase12_indexes.py)** - Query optimization with indexes
 - **[complete_example.py](examples/complete_example.py)** - Full-featured blog showcasing all capabilities
 
 Run any example:
@@ -441,6 +481,7 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 | `time` | TIME | |
 | `Optional[T]` | NULL-able | Any type can be nullable |
 | `ForeignKey[T, "table"]` | FK constraint | References table.id |
+| `Index` | INDEX/UNIQUE INDEX | Query optimization |
 
 ## Exception Types
 
@@ -511,7 +552,7 @@ uv run pytest --cov=src/deebase --cov-report=html
 uv run pytest tests/test_crud.py -v
 ```
 
-All 250 tests passing ✅
+All 280 tests passing ✅
 
 ### Project Structure
 
@@ -526,7 +567,7 @@ deebase/
 │   ├── types.py              # Type mapping
 │   ├── dataclass_utils.py    # Dataclass utilities
 │   └── exceptions.py         # Exception classes
-├── tests/                     # 250 passing tests
+├── tests/                     # 280 passing tests
 ├── examples/                  # Runnable examples
 ├── docs/                      # Documentation
 └── README.md                  # This file
@@ -551,7 +592,7 @@ DeeBase follows these principles:
 
 ## Status
 
-**All 11 development phases complete! Ready for production use.**
+**All 12 development phases complete! Ready for production use.**
 
 - ✅ Phase 1: Core Infrastructure
 - ✅ Phase 2: Table Creation & Schema
@@ -564,12 +605,13 @@ DeeBase follows these principles:
 - ✅ Phase 9: Transaction Support
 - ✅ Phase 10: Foreign Keys & Defaults
 - ✅ Phase 11: FK Navigation
+- ✅ Phase 12: Indexes
 
 See [Implementation Plan](docs/implementation_plan.md) for details.
 
 ## Contributing
 
-This project follows an 11-phase development plan (now complete). See [docs/implementation_plan.md](docs/implementation_plan.md) for the roadmap.
+This project follows a 12-phase development plan (now complete). See [docs/implementation_plan.md](docs/implementation_plan.md) for the roadmap.
 
 ## License
 

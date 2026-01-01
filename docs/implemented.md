@@ -2896,7 +2896,7 @@ await db.close()
 ### Testing
 
 - **26 new Phase 11 tests** - All passing ✅
-- **245 total tests** (Phases 1-11) - All passing ✅
+- **250 total tests** (Phases 1-11) - All passing ✅
 - Coverage:
   - FK metadata from create() and reflection
   - fk accessor convenience API
@@ -2907,6 +2907,208 @@ await db.close()
   - Dataclass integration
   - Error handling
   - xtra() filter preservation
+
+---
+
+## Phase 12: Indexes ✅ COMPLETE
+
+Phase 12 adds support for explicit indexes on tables for query optimization.
+
+### Index Class
+
+```python
+from deebase import Index
+
+# Simple named index
+idx = Index("idx_email", "email")
+
+# Unique index
+idx = Index("idx_email", "email", unique=True)
+
+# Composite index (multiple columns)
+idx = Index("idx_author_date", "author_id", "created_at")
+
+# Composite unique index
+idx = Index("idx_unique_combo", "col1", "col2", unique=True)
+```
+
+### Creating Tables with Indexes
+
+```python
+from deebase import Database, Index
+
+db = Database("sqlite+aiosqlite:///:memory:")
+
+class Article:
+    id: int
+    title: str
+    slug: str
+    author_id: int
+    created_at: str
+
+# Create table with indexes using different syntaxes
+articles = await db.create(
+    Article,
+    pk='id',
+    indexes=[
+        "slug",                                    # Simple index (auto-named: ix_article_slug)
+        ("author_id", "created_at"),               # Composite index (auto-named)
+        Index("idx_title_unique", "title", unique=True),  # Named unique index
+    ]
+)
+```
+
+**Index Syntax Options:**
+- `"column"` - Simple string for single-column index (auto-named as `ix_tablename_column`)
+- `("col1", "col2")` - Tuple for composite index (auto-named as `ix_tablename_col1_col2`)
+- `Index("name", "col")` - Index object for named index
+- `Index("name", "col", unique=True)` - Named unique index
+- `Index("name", "col1", "col2")` - Named composite index
+
+### Adding Indexes After Table Creation
+
+```python
+# Create table without indexes
+articles = await db.create(Article, pk='id')
+
+# Add index later
+await articles.create_index("title")  # Auto-named: ix_article_title
+
+# Add unique index with custom name
+await articles.create_index("slug", name="idx_article_slug", unique=True)
+
+# Add composite index
+await articles.create_index(["author_id", "created_at"], name="idx_author_date")
+```
+
+### Dropping Indexes
+
+```python
+# Drop an index by name
+await articles.drop_index("idx_author_date")
+```
+
+### Listing Indexes
+
+```python
+# List all indexes on a table
+for idx in articles.indexes:
+    print(f"Name: {idx['name']}")
+    print(f"Columns: {idx['columns']}")
+    print(f"Unique: {idx['unique']}")
+
+# Example output:
+# Name: ix_article_slug
+# Columns: ['slug']
+# Unique: False
+#
+# Name: idx_title_unique
+# Columns: ['title']
+# Unique: True
+```
+
+### Unique Index Enforcement
+
+```python
+class User:
+    id: int
+    email: str
+
+users = await db.create(
+    User,
+    pk='id',
+    indexes=[Index("idx_email", "email", unique=True)]
+)
+
+# Insert first user
+await users.insert({"id": 1, "email": "alice@example.com"})
+
+# Duplicate email raises IntegrityError
+try:
+    await users.insert({"id": 2, "email": "alice@example.com"})
+except IntegrityError:
+    print("Duplicate email rejected!")
+```
+
+### Index Naming Convention
+
+Auto-generated names follow the pattern: `ix_{tablename}_{column1}_{column2}...`
+
+| Index Spec | Generated Name |
+|------------|----------------|
+| `"title"` | `ix_article_title` |
+| `("author_id", "created_at")` | `ix_article_author_id_created_at` |
+| `Index("custom", "col")` | `custom` (uses provided name) |
+
+### Complete Example
+
+```python
+import asyncio
+from deebase import Database, Index, IntegrityError
+
+async def main():
+    db = Database("sqlite+aiosqlite:///:memory:")
+
+    class User:
+        id: int
+        name: str
+        email: str
+        status: str
+
+    # Create table with indexes
+    users = await db.create(
+        User,
+        pk='id',
+        indexes=[
+            "name",                                  # Simple index
+            Index("idx_email", "email", unique=True),  # Unique index
+            ("status", "name"),                      # Composite index
+        ]
+    )
+
+    # List indexes
+    print("Indexes on users table:")
+    for idx in users.indexes:
+        print(f"  {idx['name']}: {idx['columns']}")
+
+    # Insert users
+    await users.insert({"id": 1, "name": "Alice", "email": "alice@example.com", "status": "active"})
+    await users.insert({"id": 2, "name": "Bob", "email": "bob@example.com", "status": "active"})
+
+    # Queries on indexed columns use the index
+    user = await users.lookup(email="alice@example.com")
+    print(f"Found: {user['name']}")
+
+    # Unique constraint enforced
+    try:
+        await users.insert({"id": 3, "name": "Charlie", "email": "alice@example.com", "status": "pending"})
+    except IntegrityError:
+        print("Duplicate email rejected!")
+
+    # Add index after table creation
+    await users.create_index("status", name="idx_status")
+    print(f"Now have {len(users.indexes)} indexes")
+
+    await db.close()
+
+asyncio.run(main())
+```
+
+### Testing
+
+- **30 new Phase 12 tests** - All passing ✅
+- **280 total tests** (Phases 1-12) - All passing ✅
+- Coverage:
+  - Index class creation and validation
+  - indexes parameter in db.create()
+  - Simple, composite, and unique indexes
+  - Auto-generated index names
+  - table.create_index() method
+  - table.drop_index() method
+  - table.indexes property
+  - Unique constraint enforcement
+  - Invalid column handling
+  - Integration with CRUD operations
 
 ---
 
@@ -2932,13 +3134,13 @@ The codebase is designed to be database-agnostic through SQLAlchemy's dialect sy
 
 ## Summary
 
-**All 11 Phases Complete! 🎉**
+**All 12 Phases Complete! 🎉**
 
 DeeBase is now feature-complete with:
 - ✅ **Async/await support** - Modern Python async for FastAPI and other frameworks
 - ✅ **Ergonomic API** - Simple, intuitive operations inspired by fastlite
 - ✅ **Type safety** - Optional dataclass support for IDE autocomplete
-- ✅ **Rich type system** - Text, JSON, ForeignKey, datetime, Optional support
+- ✅ **Rich type system** - Text, JSON, ForeignKey, Index, datetime, Optional support
 - ✅ **CRUD operations** - Complete database operations (insert, update, upsert, delete, select, lookup)
 - ✅ **Foreign keys** - ForeignKey type annotation for relationships
 - ✅ **FK Navigation** - Navigate relationships with `table.fk.column(record)` and `get_children()`
@@ -2946,9 +3148,10 @@ DeeBase is now feature-complete with:
 - ✅ **Dynamic access** - Access tables with `db.t.tablename` after reflection
 - ✅ **Views support** - Read-only database views
 - ✅ **Transactions** - Atomic multi-operation commits with automatic rollback
+- ✅ **Indexes** - Explicit indexes for query optimization with `Index` class
 - ✅ **Comprehensive error handling** - 6 specific exception types with rich context
 - ✅ **Code generation** - Export database schemas as Python dataclasses
 - ✅ **Complete documentation** - API reference, migration guide, examples
-- ✅ **245 passing tests** - Comprehensive test coverage
+- ✅ **280 passing tests** - Comprehensive test coverage
 
 **Ready for production use!**
