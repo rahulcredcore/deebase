@@ -502,6 +502,44 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 - **[docs/implementation_plan.md](docs/implementation_plan.md)** - 10-phase development roadmap
 - **[examples/](examples/)** - Runnable code examples
 
+## Development Workflow
+
+When implementing a new phase, follow this workflow:
+
+### 1. Planning
+- Extract phase plans from `docs/phase11_12_future.md` (or create new)
+- Get user approval on the plan
+- Add approved plan to `docs/implementation_plan.md`
+
+### 2. Implementation
+- Implement the feature in relevant source files
+- Write tests in `tests/`
+
+### 3. Testing
+- Run `uv run pytest` - ensure all tests pass
+- Run all examples to verify no regressions
+
+### 4. Documentation Updates (one by one)
+Update each documentation file:
+1. `examples/phaseN_*.py` - Create phase example
+2. `examples/complete_example.py` - Add new feature showcase
+3. `docs/api_reference.md` - API documentation
+4. `docs/implemented.md` - Feature guide
+5. `docs/best-practices.md` - Design decisions
+6. `docs/types_reference.md` - If new types added
+7. `docs/how-it-works.md` - SQLAlchemy implementation details
+8. `README.md` - User-facing documentation
+9. `CLAUDE.md` - Developer context
+
+### 5. Finalize
+- Run all tests and examples one final time
+- `git add && git commit && git push`
+
+### Future Phases
+See `docs/phase11_12_future.md` for planned features:
+- Phase 11: FK Navigation (relationship loading)
+- Phase 12: Indexes, FTS, Joins
+
 ## Contributing
 
 This project is production-ready. The implementation follows a 10-phase plan documented in `docs/implementation_plan.md`.
