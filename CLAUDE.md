@@ -587,7 +587,7 @@ Update each documentation file:
 - `git add && git commit && git push`
 
 ### Next Phase: Phase 12 - Indexes
-See `docs/phase12_future.md` and `docs/implementation_plan.md` for the approved plan:
+See `docs/implementation_plan.md` for the approved plan:
 - `Index` class for named indexes
 - `indexes` parameter in `db.create()`
 - `table.create_index()`, `table.drop_index()`, `table.indexes` property
