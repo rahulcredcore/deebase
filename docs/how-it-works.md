@@ -1840,6 +1840,25 @@ await view.delete(1)                    # ✗ Blocked
 await view.upsert({"id": 1, ...})       # ✗ Blocked
 ```
 
+### Views as the Solution for JOINs
+
+**Design Decision:** DeeBase intentionally doesn't add a join API. Instead, views serve as the elegant solution for JOIN queries.
+
+**Why views work well for JOINs:**
+
+1. **Schema-less:** Views don't require a Python class - the database provides column metadata during reflection
+2. **Full API:** After creating a view with JOIN, you get the full DeeBase API (select, limit, lookup, dataclass, xtra)
+3. **Database optimization:** The JOIN is executed by the database, which can optimize it
+4. **No N+1:** Getting joined data is a single query, not N+1 FK lookups
+5. **SQL is the right tool:** JOINs are a SQL concept; views let you use SQL where it shines
+
+**Use cases:**
+- **Repeated joins:** Create a view with `db.create_view()`, use like any table
+- **One-off queries:** Use `db.q()` with raw SQL
+- **CTEs:** Use `db.q()` with raw SQL
+
+See [Best Practices: Using Views for Joins and CTEs](best-practices.md#using-views-for-joins-and-ctes) for patterns.
+
 ### Views with JOIN and Aggregation
 
 **Complex view example:**

@@ -269,6 +269,24 @@ Reflect an existing view from the database.
 - Views that exist in the database but weren't created via `db.create_view()`
 - After manually creating a view with `db.q()`
 
+**Key insight for JOINs:** Views are the recommended way to handle JOIN queries in DeeBase. Create a view with a JOIN query, then use it like any table:
+
+```python
+# Create view with JOIN (one-time)
+await db.create_view("post_authors", """
+    SELECT p.id, p.title, u.name as author_name
+    FROM posts p JOIN users u ON p.author_id = u.id
+""")
+
+# Use like any table - no Python class needed!
+results = await db.v.post_authors()           # All rows
+limited = await db.v.post_authors(limit=10)   # With limit
+found = await db.v.post_authors.lookup(author_name="Alice")
+PostAuthorDC = db.v.post_authors.dataclass()  # Type-safe access!
+```
+
+The database provides column metadata during reflection, so you get the full DeeBase API without defining a Python schema. See [Best Practices: Using Views for Joins and CTEs](best-practices.md#using-views-for-joins-and-ctes) for more patterns.
+
 **When NOT to use:**
 - View created with `db.create_view()` (already cached automatically)
 

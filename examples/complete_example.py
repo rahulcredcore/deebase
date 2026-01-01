@@ -320,10 +320,14 @@ async def main():
     print()
 
     # =========================================================================
-    # Phase 7: Views
+    # Phase 7: Views - Including Views for Joins Pattern
     # =========================================================================
-    print("9. Database views (Phase 7)")
+    print("9. Database views for joins (Phase 7)")
     print("-" * 70)
+
+    # Views are the elegant solution for JOINs in DeeBase!
+    # Instead of an N+1 pattern (fetching each FK separately),
+    # create a view with JOIN and use it like a table.
 
     # Create view for published posts with author info
     published_view = await db.create_view(
@@ -337,16 +341,42 @@ async def main():
         """
     )
     print(f"   Created view: {published_view._name}")
+    print("   (Uses JOIN to get post + author + category in one query)")
 
-    # Query view
+    # Query view - full DeeBase API works!
     results = await published_view()
-    print(f"   Published posts view ({len(results)} rows):")
+    print(f"\n   Published posts view ({len(results)} rows):")
     for row in results:
         print(f"      '{row['title']}' by {row['author_name']} [{row['category']}]")
 
+    # Generate dataclass from view for type-safe access
+    PublishedPostDC = published_view.dataclass()
+    print(f"\n   Generated dataclass from view: {PublishedPostDC.__name__}")
+    typed_results = await published_view()
+    for p in typed_results:
+        print(f"      Type-safe access: {p.title} by {p.author_name}")
+
     # Access via db.v
     view = db.v.published_posts
-    print(f"   Accessed via db.v: {view._name}")
+    print(f"\n   Accessed via db.v: {view._name}")
+
+    # Create another view for aggregations
+    await db.create_view(
+        "author_stats",
+        """
+        SELECT
+            a.id, a.name,
+            COUNT(p.id) as post_count,
+            COALESCE(SUM(p.view_count), 0) as total_views
+        FROM author a
+        LEFT JOIN post p ON a.id = p.author_id
+        GROUP BY a.id, a.name
+        """
+    )
+    stats = await db.v.author_stats()
+    print(f"\n   Author stats view (aggregation):")
+    for s in stats:
+        print(f"      {s['name']}: {s['post_count']} posts, {s['total_views']} views")
     print()
 
     # =========================================================================
@@ -423,6 +453,7 @@ async def main():
     print("13. Cleanup")
     print("-" * 70)
     await published_view.drop()
+    await db.v.author_stats.drop()
     await comments.drop()
     await posts.drop()
     await categories.drop()

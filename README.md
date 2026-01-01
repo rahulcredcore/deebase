@@ -4,7 +4,7 @@
 
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![SQLAlchemy 2.0+](https://img.shields.io/badge/sqlalchemy-2.0+-green.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/tests-245%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-250%20passing-brightgreen.svg)](#)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#)
 
 DeeBase provides a simple, intuitive interface for async database operations in Python. Built on SQLAlchemy, it combines the ergonomics of [fastlite](https://fastlite.answer.ai/) with full async/await support and multi-database compatibility.
@@ -286,19 +286,33 @@ all_posts = await posts()
 
 ## Database Views
 
+Views are the recommended way to handle JOIN queries in DeeBase:
+
 ```python
-# Create view
-popular_posts = await db.create_view(
-    "popular_posts",
-    "SELECT * FROM posts WHERE views > 1000"
+# Create view with JOIN
+post_details = await db.create_view(
+    "post_details",
+    """
+    SELECT p.id, p.title, u.name as author_name
+    FROM posts p JOIN users u ON p.author_id = u.id
+    """
 )
 
-# Query view (read-only)
-posts = await popular_posts()
+# Query view - full DeeBase API works!
+posts = await post_details()              # All rows
+posts = await post_details(limit=10)      # With limit
+post = await post_details.lookup(author_name="Alice")
+
+# Generate dataclass for type-safe access
+PostDetailDC = post_details.dataclass()
+for post in await post_details():
+    print(f"{post.title} by {post.author_name}")
 
 # Access via db.v
-view = db.v.popular_posts
+view = db.v.post_details
 ```
+
+Views let you handle JOINs without needing a Python class - the database provides column metadata. See [Best Practices](docs/best-practices.md#using-views-for-joins-and-ctes) for patterns.
 
 ## Filtering with xtra()
 
@@ -349,6 +363,7 @@ Runnable examples are available in the [`examples/`](examples/) folder:
 - **[phase4_dataclass_support.py](examples/phase4_dataclass_support.py)** - Type-safe operations with dataclasses
 - **[phase5_reflection.py](examples/phase5_reflection.py)** - Working with existing databases
 - **[phase7_views.py](examples/phase7_views.py)** - Database views
+- **[views_joins_ctes.py](examples/views_joins_ctes.py)** - Using views for JOINs and CTEs
 - **[phase8_polish_utilities.py](examples/phase8_polish_utilities.py)** - Error handling & code generation
 - **[phase9_transactions.py](examples/phase9_transactions.py)** - Multi-operation atomic transactions
 - **[phase10_foreign_keys_defaults.py](examples/phase10_foreign_keys_defaults.py)** - Foreign keys & defaults
@@ -496,7 +511,7 @@ uv run pytest --cov=src/deebase --cov-report=html
 uv run pytest tests/test_crud.py -v
 ```
 
-All 245 tests passing ✅
+All 250 tests passing ✅
 
 ### Project Structure
 
@@ -511,7 +526,7 @@ deebase/
 │   ├── types.py              # Type mapping
 │   ├── dataclass_utils.py    # Dataclass utilities
 │   └── exceptions.py         # Exception classes
-├── tests/                     # 245 passing tests
+├── tests/                     # 250 passing tests
 ├── examples/                  # Runnable examples
 ├── docs/                      # Documentation
 └── README.md                  # This file

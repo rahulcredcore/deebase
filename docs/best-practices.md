@@ -7,6 +7,7 @@ This guide helps you make informed decisions when using DeeBase, explaining the 
 - [Dict vs Dataclass: Choosing Your Programming Style](#dict-vs-dataclass-choosing-your-programming-style)
 - [Reflection: When and How](#reflection-when-and-how)
 - [Table and View Creation Patterns](#table-and-view-creation-patterns)
+- [Using Views for Joins and CTEs](#using-views-for-joins-and-ctes)
 - [Foreign Keys and Relationships](#foreign-keys-and-relationships)
 - [Default Values](#default-values)
 - [Maintaining Consistency](#maintaining-consistency)
@@ -354,6 +355,215 @@ await db.q("""
 **Cons:**
 - ❌ Schema split between Python and SQL
 - ❌ Requires understanding both approaches
+
+---
+
+## Using Views for Joins and CTEs
+
+Views provide an elegant solution for working with JOINs and complex queries in DeeBase without adding a join API. This approach keeps the library simple while giving you full flexibility.
+
+### The Key Insight
+
+Views, JOINs, and CTEs all have something in common: they produce **result sets with column metadata**. DeeBase's `reflect_view()` discovers this metadata from the database, so you don't need a Python class definition. The database tells us the column structure.
+
+### Pattern 1: Views for Repeated Joins
+
+When you frequently query joined data, create a view:
+
+```python
+# Create tables
+class User:
+    id: int
+    name: str
+    email: str
+
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]
+    title: str
+    views: int
+
+users = await db.create(User, pk='id')
+posts = await db.create(Post, pk='id')
+
+# Create a view for posts with author info
+post_authors = await db.create_view(
+    "post_authors",
+    """
+    SELECT p.id, p.title, p.views, u.name as author_name, u.email as author_email
+    FROM post p
+    JOIN user u ON p.author_id = u.id
+    """
+)
+
+# Now use it like any table (read-only)
+results = await post_authors()                          # All rows
+results = await post_authors(limit=10)                  # With limit
+result = await post_authors.lookup(author_name="Alice") # Filter
+PostAuthorDC = post_authors.dataclass()                 # Type-safe access!
+```
+
+**Benefits:**
+- ✅ Full DeeBase API (select, lookup, dataclass, xtra)
+- ✅ Database handles the JOIN optimization
+- ✅ No N+1 query problem
+- ✅ Schema-less - no Python class needed
+
+### Pattern 2: Raw SQL for One-Off Joins
+
+For ad-hoc complex queries, use `db.q()` directly:
+
+```python
+# One-off join query
+results = await db.q("""
+    SELECT
+        u.name,
+        COUNT(p.id) as post_count,
+        SUM(p.views) as total_views
+    FROM user u
+    LEFT JOIN post p ON u.id = p.author_id
+    GROUP BY u.id
+""")
+# Returns: [{'name': 'Alice', 'post_count': 5, 'total_views': 1234}, ...]
+```
+
+**Use this for:**
+- Complex aggregations
+- One-time reports
+- Ad-hoc analysis
+- Queries that don't fit the view pattern
+
+### Pattern 3: CTEs via Raw SQL
+
+For recursive queries or complex CTEs, use `db.q()`:
+
+```python
+# Recursive CTE example (e.g., org chart)
+results = await db.q("""
+    WITH RECURSIVE org_tree AS (
+        SELECT id, name, manager_id, 0 as level
+        FROM employees
+        WHERE manager_id IS NULL
+
+        UNION ALL
+
+        SELECT e.id, e.name, e.manager_id, ot.level + 1
+        FROM employees e
+        JOIN org_tree ot ON e.manager_id = ot.id
+    )
+    SELECT * FROM org_tree ORDER BY level, name
+""")
+```
+
+### Pattern 4: Views for Complex Aggregations
+
+Create views for dashboard-style aggregated data:
+
+```python
+# User stats view
+await db.create_view(
+    "user_stats",
+    """
+    SELECT
+        u.id,
+        u.name,
+        COUNT(p.id) as total_posts,
+        COALESCE(SUM(p.views), 0) as total_views,
+        MAX(p.created_at) as last_post_date
+    FROM user u
+    LEFT JOIN post p ON u.id = p.author_id
+    GROUP BY u.id, u.name
+    """
+)
+
+# Use with full DeeBase API
+stats_view = db.v.user_stats
+all_stats = await stats_view()
+top_users = await stats_view(limit=10)  # Note: would need ORDER BY in view
+
+# Generate dataclass for type safety
+UserStatsDC = stats_view.dataclass()
+```
+
+### When to Use Each Approach
+
+| Scenario | Solution |
+|----------|----------|
+| Repeated join queries | Create a view with `db.create_view()` |
+| One-off complex query | Use `db.q()` with raw SQL |
+| Recursive queries (CTEs) | Use `db.q()` with raw SQL |
+| Dashboard aggregations | Create a view |
+| Bulk navigation (avoid N+1) | Create a view with JOIN |
+| Simple FK traversal | Use `table.fk.column(record)` |
+
+### Why Not a Join API?
+
+DeeBase intentionally doesn't add a join API because:
+
+1. **Views already solve it** - `db.create_view()` + view operations cover most use cases
+2. **SQL is the right tool** - JOINs are a SQL concept; `db.q()` lets you write optimal SQL
+3. **Simplicity** - Adding join builders adds complexity without much benefit
+4. **Performance** - Views are optimized by the database; Python join builders can't match it
+
+### Complete Example
+
+```python
+from deebase import Database, ForeignKey
+
+db = Database("sqlite+aiosqlite:///:memory:")
+
+# Tables
+class Author:
+    id: int
+    name: str
+
+class Book:
+    id: int
+    author_id: ForeignKey[int, "author"]
+    title: str
+    sales: int
+
+authors = await db.create(Author, pk='id')
+books = await db.create(Book, pk='id')
+
+# Data
+await authors.insert({"name": "Alice"})
+await authors.insert({"name": "Bob"})
+await books.insert({"author_id": 1, "title": "Python Guide", "sales": 1000})
+await books.insert({"author_id": 1, "title": "Async Patterns", "sales": 500})
+await books.insert({"author_id": 2, "title": "Data Science", "sales": 2000})
+
+# View for joined data
+await db.create_view(
+    "book_details",
+    """
+    SELECT b.id, b.title, b.sales, a.name as author_name
+    FROM book b JOIN author a ON b.author_id = a.id
+    """
+)
+
+# Use the view
+book_details = db.v.book_details
+all_books = await book_details()
+# [{'id': 1, 'title': 'Python Guide', 'sales': 1000, 'author_name': 'Alice'}, ...]
+
+# With dataclass
+BookDetailDC = book_details.dataclass()
+typed_books = await book_details()
+for book in typed_books:
+    print(f"{book.title} by {book.author_name}: {book.sales} sales")
+
+# One-off aggregation via db.q()
+top_authors = await db.q("""
+    SELECT a.name, SUM(b.sales) as total_sales
+    FROM author a JOIN book b ON a.id = b.author_id
+    GROUP BY a.id
+    ORDER BY total_sales DESC
+    LIMIT 5
+""")
+```
+
+---
 
 ### Foreign Keys and Relationships
 

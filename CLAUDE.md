@@ -61,7 +61,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Transaction support (`db.transaction()`, atomic multi-operation commits)
 - ✅ FK navigation (`table.fk.column()`, `get_parent()`, `get_children()`)
 - ✅ Complete documentation (API reference, migration guide, examples)
-- ✅ 245 passing tests
+- ✅ 250 passing tests
 
 **Phase 8 Deliverables:**
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`
@@ -96,7 +96,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - Returns None for null FKs or dangling references (no exceptions)
 - Respects target table's dataclass setting
 - Works with both created and reflected tables
-- 26 new tests (245 total passing tests)
+- 26 new tests (250 total passing tests - includes 5 views-for-joins tests)
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
@@ -446,7 +446,7 @@ src/deebase/
 - ✅ `table.get_children(record, child_table, fk_column)` reverse lookup
 - ✅ Returns None for null/dangling FKs (no exceptions)
 - ✅ Respects target table's dataclass setting
-- ✅ 26 new tests (245 total passing)
+- ✅ 26 new tests (250 total passing - includes 5 views-for-joins tests)
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 11-phase roadmap.
 See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
@@ -473,6 +473,9 @@ uv run examples/phase5_reflection.py
 
 # Phase 7: Views support
 uv run examples/phase7_views.py
+
+# Views for JOINs and CTEs (recommended pattern)
+uv run examples/views_joins_ctes.py
 
 # Phase 8: Production polish and utilities
 uv run examples/phase8_polish_utilities.py
@@ -505,6 +508,7 @@ All examples use in-memory databases and demonstrate:
 - Code generation utilities (dataclass_src, create_mod, create_mod_from_tables)
 - Transaction support for atomic multi-operation commits
 - FK navigation (table.fk.column(), get_parent(), get_children())
+- Views for JOINs and CTEs (recommended pattern for multi-table queries)
 - Production-ready error handling patterns
 - Schema inspection
 - Practical usage patterns
@@ -584,7 +588,7 @@ Update each documentation file:
 
 ### Future Phases
 See `docs/phase12_future.md` for planned features:
-- Phase 12: Indexes, FTS, Joins
+- Phase 12: Indexes (FTS removed from scope, joins solved via views)
 
 ## Contributing
 

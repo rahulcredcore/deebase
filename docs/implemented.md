@@ -1339,7 +1339,11 @@ results = await active_users()
 print(results)  # [{'id': 1, 'name': 'Alice', 'email': 'alice@example.com', 'active': 1}]
 ```
 
-### Views with JOIN
+### Views for JOINs (Recommended Pattern)
+
+**Views are the recommended way to handle JOIN queries in DeeBase.** Instead of adding a join API, DeeBase uses views - which let you define the JOIN once and then use it like any table.
+
+**Key insight:** Views don't require a Python class! The database provides column metadata during reflection, so you get full DeeBase API support (select, limit, lookup, dataclass) without defining a schema.
 
 ```python
 class User:
@@ -1369,11 +1373,29 @@ posts_with_authors = await db.create_view(
     """
 )
 
-# Query the view
-results = await posts_with_authors()
-for row in results:
-    print(f"{row['title']} by {row['author_name']} ({row['views']} views)")
+# Full DeeBase API works - no Python class needed!
+results = await posts_with_authors()               # All rows
+results = await posts_with_authors(limit=10)       # With limit
+found = await posts_with_authors.lookup(author_name="Alice")  # Filter
+
+# Generate dataclass for type-safe access
+PostAuthorDC = posts_with_authors.dataclass()
+for row in await posts_with_authors():
+    print(f"{row.title} by {row.author_name} ({row.views} views)")
 ```
+
+For one-off complex queries (CTEs, ad-hoc joins), use `db.q()`:
+
+```python
+# One-off query - use raw SQL
+results = await db.q("""
+    SELECT u.name, COUNT(p.id) as post_count
+    FROM user u LEFT JOIN post p ON u.id = p.user_id
+    GROUP BY u.id
+""")
+```
+
+See [Best Practices: Using Views for Joins and CTEs](best-practices.md#using-views-for-joins-and-ctes) for more patterns.
 
 ### Replace Existing Views
 
