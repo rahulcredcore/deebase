@@ -323,9 +323,9 @@ Runnable examples are available in the [`examples/`](examples/) folder:
 - **[phase5_reflection.py](examples/phase5_reflection.py)** - Working with existing databases
 - **[phase7_views.py](examples/phase7_views.py)** - Database views
 - **[phase8_polish_utilities.py](examples/phase8_polish_utilities.py)** - Error handling & code generation
-- **[transactions.py](examples/transactions.py)** - Multi-operation atomic transactions
+- **[phase9_transactions.py](examples/phase9_transactions.py)** - Multi-operation atomic transactions
 - **[phase10_foreign_keys_defaults.py](examples/phase10_foreign_keys_defaults.py)** - Foreign keys & defaults
-- **[complete_example.py](examples/complete_example.py)** - Full-featured blog database
+- **[complete_example.py](examples/complete_example.py)** - Full-featured blog showcasing all capabilities
 
 Run any example:
 ```bash
@@ -346,24 +346,15 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
     TUTORIALS (learning-oriented)  EXPLANATION (understanding-oriented)
            │                              │
     • examples/                    • how-it-works.md
-      - phase1_raw_sql.py          • migrating_from_fastlite.md
-      - phase2_table_creation.py   • implemented.md
-      - phase3_crud_operations.py
-      - phase4_dataclass_support.py
-      - phase5_reflection.py
-      - phase7_views.py
-      - phase8_polish_utilities.py
-      - complete_example.py
+      (runnable phase examples     • migrating_from_fastlite.md
+       + complete_example.py)      • implemented.md
            │                              │
     ───────┼──────────────────────────────┼───────
            │                              │
     HOW-TO GUIDES (problem-oriented) REFERENCE (information-oriented)
            │                              │
     • best-practices.md            • api_reference.md
-      - Dict vs Dataclass          • types_reference.md
-      - Reflection decisions
-      - Error handling patterns
-      - Consistency strategies
+                                   • types_reference.md
            │                              │
 ```
 

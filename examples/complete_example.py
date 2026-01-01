@@ -1,264 +1,406 @@
 """
 Complete Example: Building a Blog Database
 
-This example shows a realistic workflow combining all phases:
-- Table creation from Python classes (Phase 2)
-- CRUD operations with rich types (Phase 3)
-- Schema inspection
-- Type safety with Text, JSON, datetime
+This example showcases ALL DeeBase capabilities from Phases 1-10:
+- Phase 1: Raw SQL queries
+- Phase 2: Table creation from Python classes
+- Phase 3: CRUD operations with rich types
+- Phase 4: Dataclass support for type safety
+- Phase 5: Reflection and dynamic table access
+- Phase 6: xtra() filtering for scoped queries
+- Phase 7: Database views for read-only access
+- Phase 8: Exception handling with rich context
+- Phase 9: Transactions for atomic operations
+- Phase 10: Foreign keys and default values
 """
 
 import asyncio
 from typing import Optional
 from datetime import datetime
-from deebase import Database, Text, NotFoundError, IntegrityError, ValidationError
+from dataclasses import dataclass
+from deebase import (
+    Database, Text, ForeignKey,
+    NotFoundError, IntegrityError, ValidationError
+)
 
 
 async def main():
-    print("=" * 60)
-    print("Complete Example: Building a Blog Database")
-    print("=" * 60)
+    print("=" * 70)
+    print("Complete Example: Full-Featured Blog Database")
+    print("Showcasing ALL DeeBase capabilities (Phases 1-10)")
+    print("=" * 70)
     print()
 
     # Initialize database
     db = Database("sqlite+aiosqlite:///:memory:")
 
-    # Define schema with Python classes
-    print("1. Defining schema...")
+    # =========================================================================
+    # Phase 10: Foreign Keys & Defaults
+    # =========================================================================
+    print("1. Defining schema with Foreign Keys & Defaults (Phase 10)")
+    print("-" * 70)
 
+    # Author table with default status
     class Author:
         id: int
         name: str
         email: str
         bio: Optional[Text]
+        status: str = "active"  # SQL DEFAULT 'active'
 
+    # Category table
+    class Category:
+        id: int
+        name: str
+        slug: str
+
+    # Post table with FK relationships and defaults
     class Post:
         id: int
         title: str
         slug: str
         content: Text
         excerpt: Optional[str]
-        author_id: int
+        author_id: ForeignKey[int, "author"]      # FK to author.id
+        category_id: ForeignKey[int, "category"]  # FK to category.id
         metadata: dict
-        published: bool
-        view_count: int
+        published: bool = False  # SQL DEFAULT 0
+        view_count: int = 0      # SQL DEFAULT 0
         created_at: datetime
         updated_at: Optional[datetime]
 
-    print("   ✓ Schema defined\n")
+    # Comment table with FK to post
+    class Comment:
+        id: int
+        post_id: ForeignKey[int, "post"]  # FK to post.id
+        author_name: str
+        content: Text
+        approved: bool = False  # SQL DEFAULT 0
+        created_at: datetime
 
-    # Create tables
-    print("2. Creating tables...")
-    authors = await db.create(Author, pk='id')
-    posts = await db.create(Post, pk='id')
-    print(f"   ✓ Created: {authors._name}, {posts._name}\n")
+    print("   Defined: Author (with status default)")
+    print("   Defined: Category")
+    print("   Defined: Post (with FK to author, category + defaults)")
+    print("   Defined: Comment (with FK to post + default)")
+    print()
 
-    # Insert authors using CRUD
-    print("3. Inserting authors...")
+    # =========================================================================
+    # Phase 2: Table Creation
+    # =========================================================================
+    print("2. Creating tables with if_not_exists (Phase 2 + 10)")
+    print("-" * 70)
+
+    # Create tables with if_not_exists for safety
+    authors = await db.create(Author, pk='id', if_not_exists=True)
+    categories = await db.create(Category, pk='id', if_not_exists=True)
+    posts = await db.create(Post, pk='id', if_not_exists=True)
+    comments = await db.create(Comment, pk='id', if_not_exists=True)
+
+    # Enable FK enforcement in SQLite
+    await db.q("PRAGMA foreign_keys = ON")
+
+    print(f"   Created: {authors._name} (with status default)")
+    print(f"   Created: {categories._name}")
+    print(f"   Created: {posts._name} (with FK constraints + defaults)")
+    print(f"   Created: {comments._name} (with FK constraint + default)")
+    print("   Enabled: Foreign key enforcement")
+    print()
+
+    # =========================================================================
+    # Phase 3: CRUD Operations
+    # =========================================================================
+    print("3. Inserting data with CRUD operations (Phase 3)")
+    print("-" * 70)
+
+    # Insert categories
+    cat1 = await categories.insert({"name": "Technology", "slug": "tech"})
+    cat2 = await categories.insert({"name": "Tutorial", "slug": "tutorial"})
+    print(f"   Inserted categories: {cat1['name']}, {cat2['name']}")
+
+    # Insert authors (status will default to "active")
     author1 = await authors.insert({
         "name": "Alice Smith",
         "email": "alice@example.com",
-        "bio": "Tech writer and blogger"
+        "bio": "Tech writer and Python enthusiast"
     })
     author2 = await authors.insert({
         "name": "Bob Jones",
         "email": "bob@example.com",
-        "bio": "Software engineer and author"
+        "bio": "Software engineer and blogger"
     })
-    print(f"   ✓ 2 authors inserted (IDs: {author1['id']}, {author2['id']})\n")
+    print(f"   Inserted authors: {author1['name']} (status={author1['status']})")
+    print(f"                     {author2['name']} (status={author2['status']})")
 
-    # Insert posts using CRUD with rich types (Text, dict/JSON, datetime)
-    print("4. Inserting posts...")
+    # Insert posts (view_count and published will use defaults)
     post1 = await posts.insert({
         "title": "Getting Started with DeeBase",
         "slug": "getting-started-deebase",
         "content": "This is a comprehensive guide to DeeBase, an async database library...",
-        "excerpt": "Learn how to use DeeBase for async database operations",
+        "excerpt": "Learn async database operations with DeeBase",
         "author_id": author1['id'],
-        "metadata": {
-            "category": "tutorial",
-            "tags": ["python", "async", "database"]
-        },
-        "published": True,
-        "view_count": 42,
-        "created_at": datetime(2025, 12, 23, 10, 0, 0)
+        "category_id": cat2['id'],
+        "metadata": {"tags": ["python", "async", "database"], "featured": True},
+        "created_at": datetime(2025, 12, 20, 10, 0, 0)
     })
+    print(f"   Inserted post: '{post1['title']}'")
+    print(f"      view_count={post1['view_count']} (default), published={post1['published']} (default)")
 
+    # Insert another post with explicit values
     post2 = await posts.insert({
         "title": "Advanced SQLAlchemy Patterns",
         "slug": "advanced-sqlalchemy",
         "content": "Explore advanced patterns for using SQLAlchemy with async Python...",
         "author_id": author2['id'],
-        "metadata": {
-            "category": "advanced",
-            "tags": ["sqlalchemy", "patterns"]
-        },
+        "category_id": cat1['id'],
+        "metadata": {"tags": ["sqlalchemy", "patterns"], "featured": False},
         "published": True,
         "view_count": 156,
-        "created_at": datetime(2025, 12, 22, 14, 30, 0)
+        "created_at": datetime(2025, 12, 18, 14, 30, 0)
     })
-    print(f"   ✓ 2 posts inserted (IDs: {post1['id']}, {post2['id']})\n")
+    print(f"   Inserted post: '{post2['title']}'")
+    print(f"      view_count={post2['view_count']} (explicit), published={post2['published']} (explicit)")
 
-    # Query data with SQL
-    print("5. Querying blog posts...")
-    results = await db.q("""
-        SELECT
-            p.title,
-            p.excerpt,
-            p.view_count,
-            a.name as author_name,
-            p.metadata
-        FROM post p
-        JOIN author a ON p.author_id = a.id
-        WHERE p.published = 1
-        ORDER BY p.view_count DESC
-    """)
-
-    print(f"   Found {len(results)} published posts:\n")
-    for post in results:
-        print(f"   📝 {post['title']}")
-        print(f"      By: {post['author_name']}")
-        print(f"      Views: {post['view_count']}")
-        if post['excerpt']:
-            print(f"      Excerpt: {post['excerpt']}")
-        print(f"      Metadata: {post['metadata']}")
-        print()
-
-    # View schemas
-    print("6. Table schemas:")
-    print("\nAuthor table:")
-    print(authors.schema)
-    print("\nPost table:")
-    print(posts.schema)
+    # Insert comments (approved will default to False)
+    comment1 = await comments.insert({
+        "post_id": post1['id'],
+        "author_name": "Reader1",
+        "content": "Great introduction!",
+        "created_at": datetime.now()
+    })
+    print(f"   Inserted comment: approved={comment1['approved']} (default)")
     print()
 
-    # CRUD operations demo
-    print("7. Demonstrating CRUD operations...")
+    # =========================================================================
+    # Phase 8: Exception Handling
+    # =========================================================================
+    print("4. Exception handling (Phase 8)")
+    print("-" * 70)
 
-    # Lookup by slug
-    found_post = await posts.lookup(slug="getting-started-deebase")
-    print(f"   • Found post by slug: {found_post['title']}")
+    # FK constraint violation
+    try:
+        await posts.insert({
+            "title": "Invalid Post",
+            "slug": "invalid",
+            "content": "This will fail",
+            "author_id": 999,  # Non-existent author!
+            "category_id": 1,
+            "metadata": {},
+            "created_at": datetime.now()
+        })
+    except IntegrityError as e:
+        print(f"   IntegrityError caught: FK constraint violated")
+        print(f"      Table: {e.table_name}")
 
-    # Update view count
-    found_post['view_count'] += 10
-    updated_post = await posts.update(found_post)
-    print(f"   • Updated view count: {updated_post['view_count']}")
-
-    # Get by primary key
-    fetched = await posts[post2['id']]
-    print(f"   • Fetched by PK: {fetched['title']}")
-
-    # Select all with limit
-    limited = await posts(limit=1)
-    print(f"   • Selected with limit(1): {limited[0]['title']}\n")
-
-    # Exception handling (Phase 8)
-    print("8. Demonstrating exception handling...")
-
-    # NotFoundError handling
+    # NotFoundError
     try:
         await posts[999]
     except NotFoundError as e:
-        print(f"   • NotFoundError: {e.message}")
-        print(f"     Table: {e.table_name}, Filters: {e.filters}")
+        print(f"   NotFoundError caught: {e.message}")
 
-    # Add unique constraint for IntegrityError demo
-    await db.q("CREATE UNIQUE INDEX idx_author_email ON author(email)")
-
-    # IntegrityError handling
+    # ValidationError
     try:
-        await authors.insert({
-            "name": "Alice Smith Clone",
-            "email": "alice@example.com"  # Duplicate email
-        })
-    except IntegrityError as e:
-        print(f"   • IntegrityError: Duplicate email detected")
-        print(f"     Constraint: {e.constraint}, Table: {e.table_name}")
-
-    # ValidationError handling
-    try:
-        await posts.update({"title": "Missing PK"})  # No ID field
+        await posts.update({"title": "Missing PK"})
     except ValidationError as e:
-        print(f"   • ValidationError: {e.message}")
-        print(f"     Field: {e.field}")
+        print(f"   ValidationError caught: {e.message}")
     print()
 
-    # Dataclass support (Phase 4)
-    print("9. Enabling dataclass mode...")
+    # =========================================================================
+    # Phase 9: Transactions
+    # =========================================================================
+    print("5. Atomic transactions (Phase 9)")
+    print("-" * 70)
 
-    # Enable dataclass mode for type-safe operations
-    PostDC = posts.dataclass()
-    AuthorDC = authors.dataclass()
-    print(f"   • Generated Post dataclass: {PostDC.__name__}")
-    print(f"   • Generated Author dataclass: {AuthorDC.__name__}")
+    # Successful transaction
+    async with db.transaction():
+        # Publish post1 and increment view count atomically
+        post1['published'] = True
+        post1['view_count'] = 50
+        await posts.update(post1)
+        # Add another comment
+        await comments.insert({
+            "post_id": post1['id'],
+            "author_name": "Reader2",
+            "content": "Thanks for sharing!",
+            "created_at": datetime.now()
+        })
+    print("   Transaction 1: Published post + added comment (committed)")
 
-    # Now all operations return dataclass instances
-    all_posts_dc = await posts()
-    print(f"   • Fetched {len(all_posts_dc)} posts as dataclass instances")
-    for post in all_posts_dc:
-        print(f"     - {post.title}: {post.view_count} views")
-    print()
+    # Transaction with rollback
+    try:
+        async with db.transaction():
+            await posts.insert({
+                "title": "Will be rolled back",
+                "slug": "rollback-test",
+                "content": "This won't persist",
+                "author_id": 1,
+                "category_id": 1,
+                "metadata": {},
+                "created_at": datetime.now()
+            })
+            raise ValueError("Simulated error!")
+    except ValueError:
+        pass
 
-    # Statistics (works with both dicts and dataclasses)
-    print("10. Blog statistics...")
+    # Verify rollback
     all_posts = await posts()
-    all_authors = await authors()
-    # Works with dataclass instances - can access .view_count attribute
-    total_views = sum(p.view_count for p in all_posts)
-    avg_views = total_views / len(all_posts) if all_posts else 0
+    print(f"   Transaction 2: Rolled back (total posts still = {len(all_posts)})")
+    print()
 
-    print(f"   Total posts: {len(all_posts)}")
-    print(f"   Total views: {total_views}")
-    print(f"   Average views per post: {avg_views:.1f}")
-    print(f"   Total authors: {len(all_authors)}\n")
+    # =========================================================================
+    # Phase 6: xtra() Filtering
+    # =========================================================================
+    print("6. Scoped queries with xtra() (Phase 6)")
+    print("-" * 70)
 
-    # Views support (Phase 7)
-    print("11. Creating and querying views...")
+    # Create filtered view of author's posts
+    alice_posts = posts.xtra(author_id=author1['id'])
+    bob_posts = posts.xtra(author_id=author2['id'])
 
-    # Create view for popular posts
-    popular_posts = await db.create_view(
-        "popular_posts",
-        "SELECT * FROM post WHERE view_count > 50 AND published = 1"
-    )
-    print(f"   • Created view: {popular_posts._name}")
+    alice_count = len(await alice_posts())
+    bob_count = len(await bob_posts())
+    print(f"   Alice's posts: {alice_count}")
+    print(f"   Bob's posts: {bob_count}")
 
-    # Create view with JOIN
-    posts_with_authors = await db.create_view(
-        "posts_with_authors",
+    # Chain filters
+    published_posts = posts.xtra(published=True)
+    published_count = len(await published_posts())
+    print(f"   Published posts: {published_count}")
+    print()
+
+    # =========================================================================
+    # Phase 4: Dataclass Support
+    # =========================================================================
+    print("7. Dataclass support for type safety (Phase 4)")
+    print("-" * 70)
+
+    # Generate dataclass from table
+    PostDC = posts.dataclass()
+    print(f"   Generated dataclass: {PostDC.__name__}")
+
+    # All operations now return dataclass instances
+    all_posts_dc = await posts()
+    for p in all_posts_dc:
+        print(f"   - {p.title}: {p.view_count} views (type: {type(p).__name__})")
+    print()
+
+    # =========================================================================
+    # Phase 7: Views
+    # =========================================================================
+    print("8. Database views (Phase 7)")
+    print("-" * 70)
+
+    # Create view for published posts with author info
+    published_view = await db.create_view(
+        "published_posts",
         """
-        SELECT p.title, p.view_count, a.name as author_name
+        SELECT p.id, p.title, p.view_count, a.name as author_name, c.name as category
         FROM post p
         JOIN author a ON p.author_id = a.id
+        JOIN category c ON p.category_id = c.id
         WHERE p.published = 1
         """
     )
-    print(f"   • Created view: {posts_with_authors._name}")
+    print(f"   Created view: {published_view._name}")
 
-    # Query views
-    popular = await popular_posts()
-    print(f"   • Popular posts: {len(popular)}")
+    # Query view
+    results = await published_view()
+    print(f"   Published posts view ({len(results)} rows):")
+    for row in results:
+        print(f"      '{row['title']}' by {row['author_name']} [{row['category']}]")
 
     # Access via db.v
-    view = db.v.posts_with_authors
-    results = await view()
-    print(f"   • Posts with authors view: {len(results)} rows")
-    for row in results:
-        print(f"     - \"{row['title']}\" by {row['author_name']}")
+    view = db.v.published_posts
+    print(f"   Accessed via db.v: {view._name}")
     print()
 
-    # Clean up
-    print("12. Cleaning up...")
-    await popular_posts.drop()
-    await posts_with_authors.drop()
-    print("   ✓ Dropped views")
-    await posts.drop()
-    await authors.drop()
-    await db.close()
-    print("   ✓ Database closed\n")
+    # =========================================================================
+    # Phase 5: Reflection & Dynamic Access
+    # =========================================================================
+    print("9. Reflection and dynamic access (Phase 5)")
+    print("-" * 70)
 
-    print("=" * 60)
+    # Create a table with raw SQL
+    await db.q("""
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY,
+            action TEXT NOT NULL,
+            timestamp TEXT NOT NULL
+        )
+    """)
+    await db.q("INSERT INTO audit_log (action, timestamp) VALUES ('startup', datetime('now'))")
+
+    # Reflect the table
+    await db.reflect_table('audit_log')
+
+    # Access via db.t
+    audit = db.t.audit_log
+    logs = await audit()
+    print(f"   Reflected audit_log table: {len(logs)} entries")
+
+    # Access all tables via db.t
+    print(f"   Dynamic access: db.t.author → {db.t.author._name}")
+    print(f"   Dynamic access: db.t.post → {db.t.post._name}")
+
+    # Multiple table access
+    a, p, c = db.t['author', 'post', 'comment']
+    print(f"   Multiple access: {a._name}, {p._name}, {c._name}")
+    print()
+
+    # =========================================================================
+    # Phase 1: Raw SQL (with JOIN)
+    # =========================================================================
+    print("10. Complex queries with raw SQL (Phase 1)")
+    print("-" * 70)
+
+    results = await db.q("""
+        SELECT
+            p.title,
+            p.view_count,
+            a.name as author,
+            c.name as category,
+            (SELECT COUNT(*) FROM comment WHERE post_id = p.id) as comment_count
+        FROM post p
+        JOIN author a ON p.author_id = a.id
+        JOIN category c ON p.category_id = c.id
+        ORDER BY p.view_count DESC
+    """)
+
+    print("   Blog posts with stats:")
+    for r in results:
+        print(f"      '{r['title']}'")
+        print(f"         Author: {r['author']}, Category: {r['category']}")
+        print(f"         Views: {r['view_count']}, Comments: {r['comment_count']}")
+    print()
+
+    # =========================================================================
+    # Schema Inspection
+    # =========================================================================
+    print("11. Schema inspection")
+    print("-" * 70)
+    print("\nPost table schema (showing FK constraints and defaults):")
+    print(posts.schema)
+    print()
+
+    # =========================================================================
+    # Cleanup
+    # =========================================================================
+    print("12. Cleanup")
+    print("-" * 70)
+    await published_view.drop()
+    await comments.drop()
+    await posts.drop()
+    await categories.drop()
+    await authors.drop()
+    await db.q("DROP TABLE IF EXISTS audit_log")
+    await db.close()
+    print("   Dropped all tables and views")
+    print("   Database closed")
+    print()
+
+    print("=" * 70)
     print("Complete example finished successfully!")
-    print("=" * 60)
+    print("All 10 phases demonstrated.")
+    print("=" * 70)
 
 
 if __name__ == "__main__":

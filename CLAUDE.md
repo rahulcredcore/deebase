@@ -435,7 +435,7 @@ uv run examples/phase7_views.py
 uv run examples/phase8_polish_utilities.py
 
 # Phase 9: Transaction support
-uv run examples/transactions.py
+uv run examples/phase9_transactions.py
 
 # Phase 10: Foreign keys and defaults
 uv run examples/phase10_foreign_keys_defaults.py
@@ -478,8 +478,8 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
     TUTORIALS (learning-oriented)  EXPLANATION (understanding-oriented)
            │                              │
     • examples/                    • how-it-works.md
-      - phase1-10 examples         • migrating_from_fastlite.md
-      - complete_example.py        • implemented.md
+      (runnable phase examples     • migrating_from_fastlite.md
+       + complete_example.py)      • implemented.md
            │                              │
     ───────┼──────────────────────────────┼───────
            │                              │

@@ -84,6 +84,86 @@ class User:
     preferences: Optional[dict]  # Nullable JSON
 ```
 
+### ForeignKey (Relationships)
+
+Use `ForeignKey[T, "table"]` to define foreign key relationships:
+
+```python
+from deebase import ForeignKey
+
+class Post:
+    id: int
+    title: str
+    author_id: ForeignKey[int, "user"]       # FK to user.id (default column)
+    category_id: ForeignKey[int, "category"] # FK to category.id
+
+class Comment:
+    id: int
+    post_id: ForeignKey[int, "post"]         # FK to post.id
+    content: str
+```
+
+**Syntax options:**
+- `ForeignKey[int, "user"]` - References `user.id` (default column is `id`)
+- `ForeignKey[str, "user.uuid"]` - References `user.uuid` explicitly
+
+**Database mapping:**
+- Creates a `FOREIGN KEY` constraint in the table definition
+- The first type parameter (`int`, `str`) determines the column type
+- FK constraints are enforced at the database level
+
+**SQLite note:** Enable FK enforcement with:
+```python
+await db.q("PRAGMA foreign_keys = ON")
+```
+
+**Example with constraint violation:**
+```python
+from deebase import IntegrityError
+
+try:
+    await posts.insert({
+        "title": "Test",
+        "author_id": 999  # Non-existent user!
+    })
+except IntegrityError as e:
+    print(f"FK violation: {e.constraint}")
+```
+
+### Default Values
+
+Use Python class defaults for SQL `DEFAULT` values:
+
+```python
+class Article:
+    id: int
+    title: str
+    status: str = "draft"      # SQL DEFAULT 'draft'
+    views: int = 0             # SQL DEFAULT 0
+    featured: bool = False     # SQL DEFAULT 0 (SQLite)
+```
+
+**Supported default types:**
+- `str` - String defaults (quoted in SQL)
+- `int` - Integer defaults
+- `float` - Float defaults
+- `bool` - Boolean defaults (0/1 in SQLite)
+
+**Important notes:**
+- Only scalar types are extracted for SQL defaults
+- Mutable defaults (`dict`, `list`) are NOT used for SQL defaults
+- `default_factory` is NOT used for SQL defaults (runtime-only)
+- Defaults work with both regular classes and `@dataclass`
+
+**Example:**
+```python
+# Insert without specifying defaults
+article = await articles.insert({"title": "Hello"})
+print(article["status"])   # "draft" (from SQL default)
+print(article["views"])    # 0 (from SQL default)
+print(article["featured"]) # False (from SQL default)
+```
+
 ## Usage Examples
 
 ### Simple Table with Mixed Types
