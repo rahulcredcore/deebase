@@ -644,16 +644,56 @@ Update each documentation file:
 - Run all tests and examples one final time
 - `git add && git commit && git push`
 
-### Next Phase: Phase 12 - Indexes
-See `docs/implementation_plan.md` for the approved plan:
-- `Index` class for named indexes
-- `indexes` parameter in `db.create()`
-- `table.create_index()`, `table.drop_index()`, `table.indexes` property
-- FTS removed from scope (SQLite-only), JOINs solved via views
+## Build & Publish
+
+When releasing a new version:
+
+### 1. Version Bump
+```bash
+# Check current version
+uv version
+
+# Bump version (choose one)
+uv version --bump patch   # 0.3.0 → 0.3.1 (bug fixes)
+uv version --bump minor   # 0.3.0 → 0.4.0 (new features)
+uv version --bump major   # 0.3.0 → 1.0.0 (breaking changes)
+
+# Or set explicit version
+uv version 1.0.0
+```
+
+### 2. Build
+```bash
+# Delete old builds
+rm -f dist/deebase-*.whl dist/deebase-*.tar.gz
+
+# Build new version
+uv build
+```
+
+### 3. Publish to PyPI
+```bash
+uv publish
+```
+
+### 4. Git Tag & GitHub Release
+```bash
+# Commit version bump
+git add pyproject.toml
+git commit -m "Bump version to X.Y.Z"
+git push
+
+# Create and push tag
+git tag vX.Y.Z
+git push origin vX.Y.Z
+
+# Create GitHub release with changelog
+gh release create vX.Y.Z --title "vX.Y.Z - Title" --notes "Changelog here"
+```
 
 ## Contributing
 
-This project is production-ready. The implementation follows an 11-phase plan documented in `docs/implementation_plan.md`.
+This project is production-ready. The implementation follows a 12-phase plan documented in `docs/implementation_plan.md`.
 
 ## License
 
