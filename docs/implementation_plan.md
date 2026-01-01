@@ -860,7 +860,87 @@ await view.drop()
 - 183 total passing tests
 - Zero breaking changes
 
-**🎉 ALL 9 PHASES COMPLETE! PROJECT PRODUCTION-READY! 🎉**
+---
+
+### Phase 10: Enhanced Create with Foreign Keys & Defaults ✅ COMPLETE
+
+**Status:** Complete
+
+**Goal:** Enhance `create()` to support foreign keys via type annotations and extract default values from class definitions, following Python's native patterns.
+
+**Design Principle:** Use Python's existing features (type annotations, class defaults) rather than adding many parameters.
+
+1. **ForeignKey type annotation**
+   - New `ForeignKey[T, "table.column"]` generic type
+   - Parses reference string: `"users"` → `users.id`, `"users.email"` → `users.email`
+   - Generates SQLAlchemy `ForeignKeyConstraint` during table creation
+   - Example:
+     ```python
+     from deebase import ForeignKey
+
+     class Post:
+         id: int
+         author_id: ForeignKey[int, "users"]      # → FK to users.id
+         category_id: ForeignKey[int, "categories.id"]  # → FK to categories.id
+     ```
+
+2. **Extract defaults from class definitions**
+   - Support both regular classes and dataclasses
+   - Regular class: `status: str = "active"` → SQL `DEFAULT 'active'`
+   - Dataclass: `status: str = "draft"` → SQL `DEFAULT 'draft'`
+   - Only extract immutable scalar defaults (str, int, float, bool)
+   - Skip `field(default_factory=...)` - works Python-side, no SQL default
+   - Skip mutable defaults (dict, list) - too complex for SQL defaults
+
+3. **New create() parameters**
+   - `if_not_exists: bool = False` - Use `CREATE TABLE IF NOT EXISTS`
+   - `replace: bool = False` - Drop table first, then create
+
+4. **Input/Output behavior unchanged**
+   - Regular class input → dict rows
+   - Dataclass input → dataclass instance rows
+   - `.dataclass()` switches to dataclass output
+   - This phase only affects schema generation, not row handling
+
+5. **What we're NOT adding**
+   - `transform` - That's migrations territory (alembic)
+   - `hash_id` / `hash_id_columns` - Niche, can add later if needed
+   - `not_null` parameter - Use non-Optional types
+   - `defaults` parameter - Use class defaults
+   - `column_order` - Python 3.7+ preserves order
+
+6. **Tests** (~20 new tests)
+   - ForeignKey type parsing
+   - FK constraint creation
+   - FK constraint enforcement (insert fails with invalid FK)
+   - Scalar defaults extraction (str, int, float, bool)
+   - Mutable defaults skipped (dict, list)
+   - Dataclass with default_factory skipped
+   - if_not_exists behavior
+   - replace behavior
+   - Regular class vs dataclass input
+
+**Deliverables:**
+- `ForeignKey` generic type in types.py
+- `extract_defaults()` function in dataclass_utils.py
+- Enhanced `create()` method with `if_not_exists` and `replace` parameters
+- 36 new tests (219 total passing tests)
+- Updated documentation
+
+**Key Implementation Details:**
+- `ForeignKey[T, "table"]` type annotation for FK columns
+- Automatic extraction of scalar defaults from class definitions
+- `if_not_exists=True` for safe table creation (no error if exists)
+- `replace=True` to drop and recreate tables
+- ForeignKeyConstraint generation in SQLAlchemy
+- Mutable defaults (dict, list, default_factory) are skipped for SQL defaults
+- Input/output behavior unchanged (regular class → dicts, dataclass → instances)
+
+**Future Phases (see docs/phase11_12_future.md):**
+- Phase 11: FK relationship navigation (get_parent, get_children)
+- Phase 12: Explicit indexes and FTS
+
+---
 
 ## Testing Strategy
 

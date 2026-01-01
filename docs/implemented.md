@@ -2352,6 +2352,239 @@ except ValueError as e:
 
 ---
 
+## Phase 10: Foreign Keys & Defaults ✅ COMPLETE
+
+Phase 10 enhances the `create()` method with foreign key support and automatic default value extraction.
+
+### Foreign Keys with ForeignKey Type
+
+Define foreign key relationships using the `ForeignKey` type annotation:
+
+```python
+from deebase import Database, ForeignKey, Text
+
+# Parent table
+class User:
+    id: int
+    name: str
+    email: str
+
+# Child table with FK
+class Post:
+    id: int
+    title: str
+    content: Text
+    author_id: ForeignKey[int, "user"]  # FK to user.id
+
+db = Database("sqlite+aiosqlite:///:memory:")
+users = await db.create(User, pk='id')
+posts = await db.create(Post, pk='id')
+
+# Insert parent first
+await users.insert({"id": 1, "name": "Alice", "email": "alice@example.com"})
+
+# Insert child with valid FK
+await posts.insert({"id": 1, "title": "Hello", "content": "...", "author_id": 1})
+```
+
+#### Explicit Column Reference
+
+By default, `ForeignKey[T, "table"]` references `table.id`. You can specify a different column:
+
+```python
+class Article:
+    id: int
+    category_slug: ForeignKey[str, "category.slug"]  # FK to category.slug
+```
+
+#### Multiple Foreign Keys
+
+```python
+class BlogPost:
+    id: int
+    title: str
+    author_id: ForeignKey[int, "user"]
+    category_id: ForeignKey[int, "category"]
+```
+
+### Default Values from Class Definitions
+
+DeeBase automatically extracts default values from class definitions:
+
+```python
+class Article:
+    id: int
+    title: str
+    status: str = "draft"      # SQL DEFAULT 'draft'
+    views: int = 0             # SQL DEFAULT 0
+    featured: bool = False     # SQL DEFAULT 0
+
+articles = await db.create(Article, pk='id')
+
+# Insert without specifying defaults
+article = await articles.insert({"id": 1, "title": "Hello"})
+print(article["status"])    # "draft" (from default)
+print(article["views"])     # 0 (from default)
+print(article["featured"])  # False (from default)
+```
+
+#### Works with Dataclasses
+
+```python
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class Product:
+    id: Optional[int] = None
+    name: str = ""
+    price: float = 0.0
+    in_stock: bool = True
+    category: str = "general"
+
+products = await db.create(Product, pk='id')
+
+# Returns dataclass instances with defaults applied
+product = await products.insert({"name": "Widget"})
+print(product.price)      # 0.0
+print(product.in_stock)   # True
+print(product.category)   # "general"
+```
+
+#### What Gets Extracted
+
+| Type | Example | SQL Default |
+|------|---------|-------------|
+| `str` | `status: str = "draft"` | `DEFAULT 'draft'` |
+| `int` | `views: int = 0` | `DEFAULT 0` |
+| `float` | `price: float = 9.99` | `DEFAULT 9.99` |
+| `bool` | `active: bool = True` | `DEFAULT 1` |
+
+**Skipped (not extracted):**
+- `dict = {}` - Mutable defaults
+- `list = []` - Mutable defaults
+- `field(default_factory=...)` - Default factories
+- `None` - Indicates nullable, not a default
+
+### if_not_exists Parameter
+
+Create tables safely without error if they already exist:
+
+```python
+# First creation
+users = await db.create(User, pk='id')
+await users.insert({"id": 1, "name": "Alice"})
+
+# Second creation - no error, data preserved
+users = await db.create(User, pk='id', if_not_exists=True)
+all_users = await users()  # [{"id": 1, "name": "Alice"}]
+```
+
+### replace Parameter
+
+Drop and recreate tables:
+
+```python
+# Create with data
+users = await db.create(User, pk='id')
+await users.insert({"id": 1, "name": "Alice"})
+
+# Replace - drops and recreates
+users = await db.create(User, pk='id', replace=True)
+all_users = await users()  # [] (table was dropped and recreated)
+```
+
+### FK Constraint Enforcement
+
+SQLite requires explicit FK enforcement:
+
+```python
+from deebase import IntegrityError
+
+# Enable FK constraints
+await db.q("PRAGMA foreign_keys = ON")
+
+# Now invalid FKs raise IntegrityError
+try:
+    await posts.insert({"id": 1, "title": "Test", "author_id": 999})
+except IntegrityError as e:
+    print("FK constraint violated!")
+```
+
+### Complete Example
+
+```python
+from deebase import Database, ForeignKey, Text, IntegrityError
+from dataclasses import dataclass
+from typing import Optional
+
+# Parent tables
+class Author:
+    id: int
+    name: str
+    active: bool = True
+
+class Category:
+    id: int
+    name: str
+    slug: str
+
+# Child table with multiple FKs and defaults
+class Article:
+    id: int
+    title: str
+    content: Text
+    author_id: ForeignKey[int, "author"]
+    category_id: ForeignKey[int, "category"]
+    status: str = "draft"
+    views: int = 0
+
+async def main():
+    db = Database("sqlite+aiosqlite:///:memory:")
+
+    # Create tables (safe with if_not_exists)
+    authors = await db.create(Author, pk='id', if_not_exists=True)
+    categories = await db.create(Category, pk='id', if_not_exists=True)
+    articles = await db.create(Article, pk='id', if_not_exists=True)
+
+    # Enable FK enforcement
+    await db.q("PRAGMA foreign_keys = ON")
+
+    # Insert parent records
+    await authors.insert({"id": 1, "name": "Alice"})
+    await categories.insert({"id": 1, "name": "Tech", "slug": "tech"})
+
+    # Insert article with FK references and defaults
+    article = await articles.insert({
+        "id": 1,
+        "title": "Python Tips",
+        "content": "Long article content...",
+        "author_id": 1,
+        "category_id": 1
+        # status and views use defaults
+    })
+
+    print(article["status"])  # "draft"
+    print(article["views"])   # 0
+
+    await db.close()
+```
+
+### Testing
+
+- **36 new Phase 10 tests** - All passing ✅
+- **219 total tests** (Phases 1-10) - All passing ✅
+- Coverage:
+  - ForeignKey type parsing
+  - FK constraint creation and enforcement
+  - Default value extraction (str, int, float, bool)
+  - Mutable defaults correctly skipped
+  - if_not_exists behavior
+  - replace behavior
+  - Input/output type preservation
+
+---
+
 ## Dependencies
 
 - Python 3.14+
@@ -2374,19 +2607,22 @@ The codebase is designed to be database-agnostic through SQLAlchemy's dialect sy
 
 ## Summary
 
-**All 8 Phases Complete! 🎉**
+**All 10 Phases Complete! 🎉**
 
 DeeBase is now feature-complete with:
 - ✅ **Async/await support** - Modern Python async for FastAPI and other frameworks
 - ✅ **Ergonomic API** - Simple, intuitive operations inspired by fastlite
 - ✅ **Type safety** - Optional dataclass support for IDE autocomplete
-- ✅ **Rich type system** - Text, JSON, datetime, Optional support
+- ✅ **Rich type system** - Text, JSON, ForeignKey, datetime, Optional support
 - ✅ **CRUD operations** - Complete database operations (insert, update, upsert, delete, select, lookup)
+- ✅ **Foreign keys** - ForeignKey type annotation for relationships
+- ✅ **Default values** - Automatic extraction from class definitions
 - ✅ **Dynamic access** - Access tables with `db.t.tablename` after reflection
 - ✅ **Views support** - Read-only database views
+- ✅ **Transactions** - Atomic multi-operation commits with automatic rollback
 - ✅ **Comprehensive error handling** - 6 specific exception types with rich context
 - ✅ **Code generation** - Export database schemas as Python dataclasses
 - ✅ **Complete documentation** - API reference, migration guide, examples
-- ✅ **161 passing tests** - Comprehensive test coverage
+- ✅ **219 passing tests** - Comprehensive test coverage
 
 **Ready for production use!**

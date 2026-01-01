@@ -4,7 +4,7 @@
 
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![SQLAlchemy 2.0+](https://img.shields.io/badge/sqlalchemy-2.0+-green.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/tests-161%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-219%20passing-brightgreen.svg)](#)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#)
 
 DeeBase provides a simple, intuitive interface for async database operations in Python. Built on SQLAlchemy, it combines the ergonomics of [fastlite](https://fastlite.answer.ai/) with full async/await support and multi-database compatibility.
@@ -15,9 +15,12 @@ DeeBase provides a simple, intuitive interface for async database operations in 
 - **📝 Ergonomic API** - Simple, intuitive database operations
 - **🔒 Type Safety** - Optional dataclass support with IDE autocomplete
 - **🎯 Multi-Database** - SQLite and PostgreSQL support
-- **🛠️ Rich Types** - Text, JSON, datetime, Optional support
+- **🛠️ Rich Types** - Text, JSON, ForeignKey, datetime, Optional support
+- **🔗 Foreign Keys** - ForeignKey type annotation for relationships
+- **⚙️ Default Values** - Automatic SQL defaults from class definitions
 - **⚡ Dynamic Access** - Access tables with `db.t.tablename`
 - **🔍 Views Support** - Read-only database views
+- **💾 Transactions** - Atomic multi-operation commits with rollback
 - **🎨 Error Handling** - 6 specific exception types with rich context
 - **📤 Code Generation** - Export schemas as Python dataclasses
 
@@ -173,6 +176,45 @@ article = await articles.insert({
 })
 ```
 
+## Foreign Keys and Defaults
+
+```python
+from deebase import Database, ForeignKey, Text
+
+# Define tables with FK relationships and defaults
+class User:
+    id: int
+    name: str
+    email: str
+    status: str = "active"  # SQL DEFAULT 'active'
+
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]  # FK to user.id
+    title: str
+    content: Text
+    views: int = 0  # SQL DEFAULT 0
+
+db = Database("sqlite+aiosqlite:///app.db")
+users = await db.create(User, pk='id', if_not_exists=True)
+posts = await db.create(Post, pk='id', if_not_exists=True)
+
+# Enable FK enforcement in SQLite
+await db.q("PRAGMA foreign_keys = ON")
+
+# Insert parent first
+user = await users.insert({"name": "Alice", "email": "alice@example.com"})
+# status defaults to "active"
+
+# Insert child with FK
+post = await posts.insert({
+    "author_id": user["id"],
+    "title": "Hello World",
+    "content": "My first post..."
+})
+# views defaults to 0
+```
+
 ## Error Handling
 
 DeeBase provides specific exception types with rich context:
@@ -282,6 +324,7 @@ Runnable examples are available in the [`examples/`](examples/) folder:
 - **[phase7_views.py](examples/phase7_views.py)** - Database views
 - **[phase8_polish_utilities.py](examples/phase8_polish_utilities.py)** - Error handling & code generation
 - **[transactions.py](examples/transactions.py)** - Multi-operation atomic transactions
+- **[phase10_foreign_keys_defaults.py](examples/phase10_foreign_keys_defaults.py)** - Foreign keys & defaults
 - **[complete_example.py](examples/complete_example.py)** - Full-featured blog database
 
 Run any example:
@@ -363,6 +406,7 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 | `date` | DATE | |
 | `time` | TIME | |
 | `Optional[T]` | NULL-able | Any type can be nullable |
+| `ForeignKey[T, "table"]` | FK constraint | References table.id |
 
 ## Exception Types
 
@@ -433,7 +477,7 @@ uv run pytest --cov=src/deebase --cov-report=html
 uv run pytest tests/test_crud.py -v
 ```
 
-All 161 tests passing ✅
+All 219 tests passing ✅
 
 ### Project Structure
 
@@ -448,7 +492,7 @@ deebase/
 │   ├── types.py              # Type mapping
 │   ├── dataclass_utils.py    # Dataclass utilities
 │   └── exceptions.py         # Exception classes
-├── tests/                     # 161 passing tests
+├── tests/                     # 219 passing tests
 ├── examples/                  # Runnable examples
 ├── docs/                      # Documentation
 └── README.md                  # This file

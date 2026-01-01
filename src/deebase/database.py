@@ -136,13 +136,17 @@ class Database:
     async def create(
         self,
         cls: type,
-        pk: Optional[str | list[str]] = None
+        pk: Optional[str | list[str]] = None,
+        if_not_exists: bool = False,
+        replace: bool = False,
     ) -> Table:
         """Create a table from a Python class with type annotations.
 
         Args:
             cls: Class with type annotations defining the schema
             pk: Primary key column name(s). If None, uses 'id' by default.
+            if_not_exists: If True, don't error if table already exists
+            replace: If True, drop existing table before creating
 
         Returns:
             Table instance for the created table
@@ -151,14 +155,31 @@ class Database:
             >>> class User:
             ...     id: int
             ...     name: str
-            ...     email: str
+            ...     status: str = "active"  # Default value
             >>> users = await db.create(User, pk='id')
+
+            >>> from deebase import ForeignKey
+            >>> class Post:
+            ...     id: int
+            ...     author_id: ForeignKey[int, "user"]  # FK to user.id
+            ...     title: str
+            >>> posts = await db.create(Post, pk='id')
         """
-        from .dataclass_utils import extract_annotations
-        from .types import python_type_to_sqlalchemy, is_optional
+        from .dataclass_utils import extract_annotations, extract_defaults
+        from .types import python_type_to_sqlalchemy, is_optional, is_foreign_key, get_foreign_key_info
 
         # Get table name from class name (lowercase)
         table_name = cls.__name__.lower()
+
+        # Handle replace - drop table first
+        if replace:
+            async with self._session() as session:
+                await session.execute(sa.text(f"DROP TABLE IF EXISTS {table_name}"))
+            # Remove from metadata if it exists
+            if table_name in self._metadata.tables:
+                self._metadata.remove(self._metadata.tables[table_name])
+            # Remove from cache
+            self._tables.pop(table_name, None)
 
         # Extract type annotations from the class
         annotations = extract_annotations(cls)
@@ -167,6 +188,9 @@ class Database:
             raise ValidationError(
                 f"Class {cls.__name__} has no type annotations. Cannot create table without field definitions."
             )
+
+        # Extract default values
+        defaults = extract_defaults(cls)
 
         # Determine primary key(s)
         if pk is None:
@@ -184,37 +208,102 @@ class Database:
                     column_name=pk_col
                 )
 
-        # Build SQLAlchemy columns
+        # Build SQLAlchemy columns and collect foreign keys
         columns = []
-        for field_name, field_type in annotations.items():
-            # Determine if nullable
-            nullable = is_optional(field_type)
+        foreign_keys = []  # List of (column_name, other_table, other_column)
 
-            # Get SQLAlchemy type
-            sa_type = python_type_to_sqlalchemy(field_type)
+        for field_name, field_type in annotations.items():
+            # Check if this is a ForeignKey type
+            if is_foreign_key(field_type):
+                base_type, other_table, other_column = get_foreign_key_info(field_type)
+                foreign_keys.append((field_name, other_table, other_column))
+                # Use the base type for the column
+                sa_type = python_type_to_sqlalchemy(base_type)
+                nullable = False  # FKs typically not nullable
+            else:
+                # Determine if nullable
+                nullable = is_optional(field_type)
+                # Get SQLAlchemy type
+                sa_type = python_type_to_sqlalchemy(field_type)
 
             # Check if this is a primary key column
             is_pk = field_name in pk_list
+
+            # Get default value if any
+            server_default = None
+            if field_name in defaults:
+                default_val = defaults[field_name]
+                # Convert to string for server_default
+                if isinstance(default_val, str):
+                    server_default = sa.text(f"'{default_val}'")
+                elif isinstance(default_val, bool):
+                    # SQLite uses 0/1 for booleans
+                    server_default = sa.text('1' if default_val else '0')
+                else:
+                    server_default = sa.text(str(default_val))
 
             # Create column (PKs are not nullable unless explicitly Optional)
             col = sa.Column(
                 field_name,
                 sa_type,
                 primary_key=is_pk,
-                nullable=nullable and not is_pk
+                nullable=nullable and not is_pk,
+                server_default=server_default
             )
             columns.append(col)
+
+        # Add foreign key constraints
+        fk_constraints = []
+        for col_name, other_table, other_column in foreign_keys:
+            fk_constraints.append(
+                sa.ForeignKeyConstraint(
+                    [col_name],
+                    [f"{other_table}.{other_column}"]
+                )
+            )
+
+        # Check if table already exists in metadata
+        if table_name in self._metadata.tables:
+            if if_not_exists:
+                # Return existing table
+                existing_table = self._metadata.tables[table_name]
+                table_instance = Table(
+                    table_name,
+                    existing_table,
+                    self._engine,
+                    dataclass_cls=cls
+                )
+                self._cache_table(table_name, table_instance)
+                return table_instance
+            else:
+                # Remove from metadata so we can recreate (will fail at DB level if exists)
+                self._metadata.remove(self._metadata.tables[table_name])
 
         # Create SQLAlchemy Table
         sa_table = sa.Table(
             table_name,
             self._metadata,
-            *columns
+            *columns,
+            *fk_constraints
         )
 
         # Execute CREATE TABLE
         async with self._session() as session:
-            await session.execute(sa.schema.CreateTable(sa_table))
+            try:
+                if if_not_exists:
+                    # Use CREATE TABLE IF NOT EXISTS syntax
+                    create_stmt = sa.schema.CreateTable(sa_table, if_not_exists=True)
+                    await session.execute(create_stmt)
+                else:
+                    await session.execute(sa.schema.CreateTable(sa_table))
+            except sa.exc.OperationalError as e:
+                # Table might already exist
+                if 'already exists' in str(e).lower() and not if_not_exists:
+                    raise SchemaError(
+                        f"Table '{table_name}' already exists. Use if_not_exists=True or replace=True.",
+                        table_name=table_name
+                    ) from e
+                raise
 
         # Create Table instance with the class as the dataclass
         table_instance = Table(

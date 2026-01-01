@@ -1,6 +1,6 @@
 """Type mapping utilities for converting Python types to SQLAlchemy types."""
 
-from typing import Any, get_origin, get_args
+from typing import Any, get_origin, get_args, Generic, TypeVar
 from datetime import datetime, date, time
 import sqlalchemy as sa
 
@@ -21,6 +21,92 @@ class Text:
     pass
 
 
+# Type variable for ForeignKey base type
+T = TypeVar('T')
+
+
+class _ForeignKeyType:
+    """Internal class representing a parsed ForeignKey type annotation.
+
+    Attributes:
+        base_type: The underlying Python type (e.g., int)
+        table: The referenced table name (e.g., "users")
+        column: The referenced column name (e.g., "id")
+    """
+
+    def __init__(self, base_type: type, table: str, column: str):
+        self.base_type = base_type
+        self.table = table
+        self.column = column
+
+    def __repr__(self):
+        return f'ForeignKey[{self.base_type.__name__}, "{self.table}.{self.column}"]'
+
+
+class ForeignKey(Generic[T]):
+    """Type annotation for foreign key columns.
+
+    Use this in type annotations to specify a foreign key relationship:
+
+    Example:
+        from deebase import ForeignKey
+
+        class Post:
+            id: int
+            author_id: ForeignKey[int, "users"]       # → FK to users.id
+            category_id: ForeignKey[int, "categories.id"]  # → FK to categories.id
+
+    The reference string can be:
+    - "table" - references table.id (default column is 'id')
+    - "table.column" - references table.column explicitly
+    """
+
+    def __class_getitem__(cls, params) -> _ForeignKeyType:
+        """Handle ForeignKey[int, "users"] or ForeignKey[int, "users.id"] syntax."""
+        if not isinstance(params, tuple):
+            raise TypeError("ForeignKey requires two parameters: ForeignKey[type, 'table'] or ForeignKey[type, 'table.column']")
+
+        if len(params) != 2:
+            raise TypeError("ForeignKey requires exactly two parameters: ForeignKey[type, 'table'] or ForeignKey[type, 'table.column']")
+
+        base_type, reference = params
+
+        if not isinstance(reference, str):
+            raise TypeError(f"ForeignKey reference must be a string, got {type(reference).__name__}")
+
+        # Parse reference: "users" → ("users", "id"), "users.email" → ("users", "email")
+        if '.' in reference:
+            table, column = reference.rsplit('.', 1)
+        else:
+            table, column = reference, 'id'
+
+        return _ForeignKeyType(base_type, table, column)
+
+
+def is_foreign_key(type_hint: Any) -> bool:
+    """Check if a type hint is a ForeignKey type.
+
+    Args:
+        type_hint: Type hint to check
+
+    Returns:
+        True if it's a ForeignKey type, False otherwise
+    """
+    return isinstance(type_hint, _ForeignKeyType)
+
+
+def get_foreign_key_info(type_hint: _ForeignKeyType) -> tuple[type, str, str]:
+    """Extract foreign key information from a ForeignKey type.
+
+    Args:
+        type_hint: A _ForeignKeyType instance
+
+    Returns:
+        Tuple of (base_type, table, column)
+    """
+    return (type_hint.base_type, type_hint.table, type_hint.column)
+
+
 def python_type_to_sqlalchemy(python_type: type) -> sa.types.TypeEngine:
     """Convert a Python type annotation to a SQLAlchemy type.
 
@@ -36,6 +122,10 @@ def python_type_to_sqlalchemy(python_type: type) -> sa.types.TypeEngine:
         >>> python_type_to_sqlalchemy(str)
         String()
     """
+    # Handle ForeignKey[T, "table"] by extracting T
+    if isinstance(python_type, _ForeignKeyType):
+        return python_type_to_sqlalchemy(python_type.base_type)
+
     # Handle Optional[T] by extracting T
     origin = get_origin(python_type)
     if origin is not None:

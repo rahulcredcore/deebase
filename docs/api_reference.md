@@ -107,7 +107,7 @@ await db.q("CREATE TABLE products (id INT PRIMARY KEY, name TEXT)")
 await db.q("INSERT INTO products (id, name) VALUES (1, 'Widget')")
 ```
 
-#### `async db.create(cls: type, pk: str | list[str] = None) -> Table`
+#### `async db.create(cls: type, pk: str | list[str] = None, if_not_exists: bool = False, replace: bool = False) -> Table`
 
 Create a table from a Python class with type annotations.
 
@@ -115,6 +115,7 @@ Create a table from a Python class with type annotations.
 - Starting a new project with schema defined in Python
 - When you want type-safe schema definitions
 - When the schema is version-controlled in Python code
+- When you need foreign key relationships between tables
 - Simple to moderate schema complexity
 
 **When NOT to use:**
@@ -125,22 +126,48 @@ Create a table from a Python class with type annotations.
 **Parameters:**
 - `cls` (type): Class with type annotations defining schema
 - `pk` (str | list[str], optional): Primary key column name(s). Defaults to `'id'`.
+- `if_not_exists` (bool, optional): Don't error if table already exists. Defaults to `False`.
+- `replace` (bool, optional): Drop existing table before creating. Defaults to `False`.
 
 **Returns:** `Table` - Table instance
 
 **Raises:**
 - `ValidationError`: Class has no type annotations
-- `SchemaError`: Primary key column not found in annotations
+- `SchemaError`: Primary key column not found in annotations, or table already exists
+
+**Features:**
+- **Default values**: Class attributes with defaults become SQL `DEFAULT` values
+- **Foreign keys**: Use `ForeignKey[type, "table"]` type annotation
+- **Nullable**: Use `Optional[T]` for nullable columns
 
 **Example:**
 ```python
+from deebase import Database, ForeignKey, Text
+
+# Basic table with defaults
 class User:
     id: int
     name: str
     email: str
-    created_at: datetime
+    status: str = "active"  # SQL DEFAULT 'active'
+    login_count: int = 0    # SQL DEFAULT 0
 
 users = await db.create(User, pk='id')
+
+# Table with foreign key
+class Post:
+    id: int
+    title: str
+    content: Text
+    author_id: ForeignKey[int, "user"]  # FK to user.id
+
+posts = await db.create(Post, pk='id')
+
+# Safe creation (no error if exists)
+users = await db.create(User, pk='id', if_not_exists=True)
+
+# Drop and recreate
+users = await db.create(User, pk='id', replace=True)
 
 # Composite primary key
 class OrderItem:
@@ -746,6 +773,53 @@ class Article:
     content: Text      # TEXT (unlimited)
 ```
 
+#### `ForeignKey`
+
+Generic type for foreign key columns. Defines a relationship to another table.
+
+```python
+from deebase import ForeignKey
+
+class Post:
+    id: int
+    title: str
+    author_id: ForeignKey[int, "users"]        # FK to users.id (default column)
+    category_id: ForeignKey[int, "categories.id"]  # FK to categories.id (explicit)
+```
+
+**Syntax:**
+- `ForeignKey[base_type, "table"]` - References `table.id`
+- `ForeignKey[base_type, "table.column"]` - References `table.column`
+
+**Example:**
+```python
+from deebase import Database, ForeignKey
+
+class User:
+    id: int
+    name: str
+
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]  # FK to user.id
+
+db = Database("sqlite+aiosqlite:///:memory:")
+users = await db.create(User, pk='id')
+posts = await db.create(Post, pk='id')
+
+# Enable FK enforcement in SQLite
+await db.q("PRAGMA foreign_keys = ON")
+
+# Insert parent record first
+await users.insert({"id": 1, "name": "Alice"})
+
+# Insert child record with valid FK
+await posts.insert({"id": 1, "author_id": 1})
+
+# Invalid FK raises IntegrityError
+await posts.insert({"id": 2, "author_id": 999})  # IntegrityError!
+```
+
 ### Type Mapping
 
 Python type → SQLAlchemy type → Database column:
@@ -763,6 +837,7 @@ Python type → SQLAlchemy type → Database column:
 | `datetime.date` | `Date` | DATE |
 | `datetime.time` | `Time` | TIME |
 | `Optional[T]` | `nullable=True` | NULL-able column |
+| `ForeignKey[T, "table"]` | `T` + FK constraint | FK to table.id |
 
 ---
 

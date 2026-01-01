@@ -21,6 +21,71 @@ def extract_annotations(cls: type) -> dict[str, type]:
         return getattr(cls, '__annotations__', {})
 
 
+# Sentinel for missing values (distinct from None)
+class _Missing:
+    pass
+
+
+MISSING = _Missing()
+
+
+def extract_defaults(cls: type) -> dict[str, Any]:
+    """Extract default values from a class definition.
+
+    Supports both regular classes and dataclasses.
+    Only extracts immutable scalar defaults (str, int, float, bool).
+    Mutable defaults (dict, list) and default_factory are skipped.
+
+    Args:
+        cls: Class to extract defaults from
+
+    Returns:
+        Dictionary mapping field names to their default values
+        (only includes fields with scalar defaults)
+
+    Example:
+        >>> class Article:
+        ...     id: int
+        ...     status: str = "draft"
+        ...     views: int = 0
+        ...     metadata: dict = {}  # Skipped - mutable
+        >>> extract_defaults(Article)
+        {'status': 'draft', 'views': 0}
+
+        >>> @dataclass
+        ... class Post:
+        ...     id: int
+        ...     status: str = "published"
+        ...     tags: list = field(default_factory=list)  # Skipped
+        >>> extract_defaults(Post)
+        {'status': 'published'}
+    """
+    defaults = {}
+    annotations = getattr(cls, '__annotations__', {})
+
+    if is_dataclass(cls):
+        # Use dataclass introspection
+        from dataclasses import MISSING as DC_MISSING
+        for f in fields(cls):
+            if f.default is not DC_MISSING:
+                # Has a concrete default value
+                if isinstance(f.default, (str, int, float, bool)):
+                    defaults[f.name] = f.default
+                # Skip mutable defaults and None (None means nullable, not a default)
+            # Skip default_factory - can't translate to SQL server_default
+    else:
+        # Regular class - check class attributes
+        for name in annotations:
+            value = getattr(cls, name, MISSING)
+            if value is not MISSING and not isinstance(value, _Missing):
+                # Only use immutable scalar defaults
+                if isinstance(value, (str, int, float, bool)):
+                    defaults[name] = value
+                # Skip mutable defaults (dict, list) - they work Python-side
+
+    return defaults
+
+
 def make_table_dataclass(table_name: str, sa_table: sa.Table) -> type:
     """Generate a dataclass from a SQLAlchemy Table.
 

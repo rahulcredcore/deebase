@@ -27,7 +27,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 ## Project Status
 
-✅ **ALL 9 PHASES COMPLETE! PRODUCTION-READY!** 🎉
+✅ **Phases 1-10 Complete** - Production-ready with FK support
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
@@ -38,12 +38,15 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 7 Complete** - Views Support
 ✅ **Phase 8 Complete** - Polish & Utilities
 ✅ **Phase 9 Complete** - Transaction Support
+✅ **Phase 10 Complete** - Foreign Keys & Defaults
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
-- ✅ Enhanced type system (Text, JSON, all basic types)
+- ✅ Enhanced type system (Text, JSON, ForeignKey, all basic types)
 - ✅ Complete dataclass utilities
 - ✅ Table creation from Python classes with `db.create()`
+- ✅ Foreign key support via `ForeignKey[T, "table"]` type annotation
+- ✅ Automatic default value extraction from class definitions
 - ✅ Schema inspection and table dropping
 - ✅ Full CRUD operations (insert, update, upsert, delete, select, lookup)
 - ✅ Composite primary keys
@@ -56,7 +59,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Code generation (`dataclass_src()`, `create_mod()`, `create_mod_from_tables()`)
 - ✅ Transaction support (`db.transaction()`, atomic multi-operation commits)
 - ✅ Complete documentation (API reference, migration guide, examples)
-- ✅ 183 passing tests
+- ✅ 219 passing tests
 
 **Phase 8 Deliverables:**
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`
@@ -73,6 +76,15 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - 22 new transaction tests (183 total passing tests)
 - Comprehensive transactions.py example with 8 real-world scenarios
 - Zero breaking changes - fully backward compatible
+
+**Phase 10 Deliverables:**
+- `ForeignKey[T, "table.column"]` type annotation for foreign key columns
+- Automatic extraction of scalar defaults from class definitions
+- `if_not_exists` parameter for CREATE TABLE IF NOT EXISTS
+- `replace` parameter to drop and recreate tables
+- Uses Python's native features (Optional for nullable, class defaults for SQL defaults)
+- Input flexibility: accepts both regular classes (→ dict rows) and dataclasses (→ dataclass rows)
+- 36 new tests (219 total passing tests)
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.

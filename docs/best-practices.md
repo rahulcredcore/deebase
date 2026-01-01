@@ -7,6 +7,8 @@ This guide helps you make informed decisions when using DeeBase, explaining the 
 - [Dict vs Dataclass: Choosing Your Programming Style](#dict-vs-dataclass-choosing-your-programming-style)
 - [Reflection: When and How](#reflection-when-and-how)
 - [Table and View Creation Patterns](#table-and-view-creation-patterns)
+- [Foreign Keys and Relationships](#foreign-keys-and-relationships)
+- [Default Values](#default-values)
 - [Maintaining Consistency](#maintaining-consistency)
 - [Error Handling Strategy](#error-handling-strategy)
 - [Performance Considerations](#performance-considerations)
@@ -250,21 +252,25 @@ Did you create the table/view with db.create() or db.create_view()?
 ### Pattern 1: Pure Python (Recommended for New Projects)
 
 ```python
-# Define schema in Python
+from deebase import Database, ForeignKey, Text
+
+# Define schema in Python with FKs and defaults
 class User:
     id: int
     name: str
     email: str
+    status: str = "active"  # Default value
 
 class Post:
     id: int
-    user_id: int
+    author_id: ForeignKey[int, "user"]  # FK to user.id
     title: str
     content: Text
+    views: int = 0  # Default value
 
-# Create tables
-users = await db.create(User, pk='id')
-posts = await db.create(Post, pk='id')
+# Create tables (use if_not_exists for safety)
+users = await db.create(User, pk='id', if_not_exists=True)
+posts = await db.create(Post, pk='id', if_not_exists=True)
 
 # Create views
 popular_posts = await db.create_view(
@@ -280,6 +286,8 @@ view = db.v.popular_posts
 
 **Pros:**
 - ✅ Type-safe schema definition
+- ✅ Foreign keys via ForeignKey type
+- ✅ Default values from class definitions
 - ✅ No reflection needed
 - ✅ Self-documenting
 - ✅ Version controlled
@@ -346,6 +354,67 @@ await db.q("""
 **Cons:**
 - ❌ Schema split between Python and SQL
 - ❌ Requires understanding both approaches
+
+### Foreign Keys and Relationships
+
+DeeBase supports foreign keys via the `ForeignKey` type annotation:
+
+```python
+from deebase import ForeignKey
+
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]       # FK to user.id
+    category_id: ForeignKey[int, "category"]  # FK to category.id
+```
+
+**Best Practices:**
+
+1. **Create parent tables first** - FK constraints require referenced tables to exist
+   ```python
+   users = await db.create(User, pk='id')
+   posts = await db.create(Post, pk='id')  # After users
+   ```
+
+2. **Enable FK enforcement in SQLite** - By default, SQLite doesn't enforce FKs
+   ```python
+   await db.q("PRAGMA foreign_keys = ON")
+   ```
+
+3. **Use `if_not_exists` in production** - Safely handle restarted applications
+   ```python
+   users = await db.create(User, pk='id', if_not_exists=True)
+   ```
+
+4. **Reference explicit columns when needed** - Default is `table.id`
+   ```python
+   # FK to non-id column
+   category_slug: ForeignKey[str, "category.slug"]
+   ```
+
+### Default Values
+
+Use Python class defaults for SQL DEFAULT values:
+
+```python
+class Article:
+    id: int
+    title: str
+    status: str = "draft"     # SQL DEFAULT 'draft'
+    views: int = 0            # SQL DEFAULT 0
+    featured: bool = False    # SQL DEFAULT 0
+```
+
+**What works:**
+- `str`, `int`, `float`, `bool` defaults → SQL DEFAULT clause
+
+**What doesn't work (by design):**
+- `dict = {}` - Mutable defaults skipped
+- `list = []` - Mutable defaults skipped
+- `field(default_factory=...)` - Factories skipped
+- `None` - Means nullable, not a default
+
+Mutable defaults still work Python-side when creating instances—they're just not stored as SQL defaults.
 
 ---
 
