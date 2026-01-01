@@ -586,9 +586,12 @@ Update each documentation file:
 - Run all tests and examples one final time
 - `git add && git commit && git push`
 
-### Future Phases
-See `docs/phase12_future.md` for planned features:
-- Phase 12: Indexes (FTS removed from scope, joins solved via views)
+### Next Phase: Phase 12 - Indexes
+See `docs/phase12_future.md` and `docs/implementation_plan.md` for the approved plan:
+- `Index` class for named indexes
+- `indexes` parameter in `db.create()`
+- `table.create_index()`, `table.drop_index()`, `table.indexes` property
+- FTS removed from scope (SQLite-only), JOINs solved via views
 
 ## Contributing
 
