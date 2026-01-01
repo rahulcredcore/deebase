@@ -4,7 +4,7 @@
 
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![SQLAlchemy 2.0+](https://img.shields.io/badge/sqlalchemy-2.0+-green.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/tests-219%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-245%20passing-brightgreen.svg)](#)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#)
 
 DeeBase provides a simple, intuitive interface for async database operations in Python. Built on SQLAlchemy, it combines the ergonomics of [fastlite](https://fastlite.answer.ai/) with full async/await support and multi-database compatibility.
@@ -17,6 +17,7 @@ DeeBase provides a simple, intuitive interface for async database operations in 
 - **🎯 Multi-Database** - SQLite and PostgreSQL support
 - **🛠️ Rich Types** - Text, JSON, ForeignKey, datetime, Optional support
 - **🔗 Foreign Keys** - ForeignKey type annotation for relationships
+- **🧭 FK Navigation** - Navigate FK relationships with `table.fk.column(record)`
 - **⚙️ Default Values** - Automatic SQL defaults from class definitions
 - **⚡ Dynamic Access** - Access tables with `db.t.tablename`
 - **🔍 Views Support** - Read-only database views
@@ -215,6 +216,32 @@ post = await posts.insert({
 # views defaults to 0
 ```
 
+## FK Navigation
+
+Navigate foreign key relationships to fetch related records:
+
+```python
+# Convenience API - clean syntax for FK navigation
+author = await posts.fk.author_id(post)  # Get the author of this post
+print(author["name"])  # "Alice"
+
+# Power User API - explicit method calls
+author = await posts.get_parent(post, "author_id")
+
+# Get all children via FK
+posts_by_user = await users.get_children(user, "post", "author_id")
+for p in posts_by_user:
+    print(p["title"])
+
+# Access FK metadata
+print(posts.foreign_keys)
+# [{'column': 'author_id', 'references': 'user.id'}]
+
+# Safe navigation - returns None for null FKs or dangling references
+draft = await posts.insert({"author_id": None, "title": "Draft"})
+author = await posts.fk.author_id(draft)  # Returns None
+```
+
 ## Error Handling
 
 DeeBase provides specific exception types with rich context:
@@ -325,6 +352,7 @@ Runnable examples are available in the [`examples/`](examples/) folder:
 - **[phase8_polish_utilities.py](examples/phase8_polish_utilities.py)** - Error handling & code generation
 - **[phase9_transactions.py](examples/phase9_transactions.py)** - Multi-operation atomic transactions
 - **[phase10_foreign_keys_defaults.py](examples/phase10_foreign_keys_defaults.py)** - Foreign keys & defaults
+- **[phase11_fk_navigation.py](examples/phase11_fk_navigation.py)** - FK relationship navigation
 - **[complete_example.py](examples/complete_example.py)** - Full-featured blog showcasing all capabilities
 
 Run any example:
@@ -468,7 +496,7 @@ uv run pytest --cov=src/deebase --cov-report=html
 uv run pytest tests/test_crud.py -v
 ```
 
-All 219 tests passing ✅
+All 245 tests passing ✅
 
 ### Project Structure
 
@@ -483,7 +511,7 @@ deebase/
 │   ├── types.py              # Type mapping
 │   ├── dataclass_utils.py    # Dataclass utilities
 │   └── exceptions.py         # Exception classes
-├── tests/                     # 219 passing tests
+├── tests/                     # 245 passing tests
 ├── examples/                  # Runnable examples
 ├── docs/                      # Documentation
 └── README.md                  # This file
@@ -508,7 +536,7 @@ DeeBase follows these principles:
 
 ## Status
 
-**All 8 development phases complete! Ready for production use.**
+**All 11 development phases complete! Ready for production use.**
 
 - ✅ Phase 1: Core Infrastructure
 - ✅ Phase 2: Table Creation & Schema
@@ -518,12 +546,15 @@ DeeBase follows these principles:
 - ✅ Phase 6: xtra() Filtering
 - ✅ Phase 7: Views Support
 - ✅ Phase 8: Polish & Utilities
+- ✅ Phase 9: Transaction Support
+- ✅ Phase 10: Foreign Keys & Defaults
+- ✅ Phase 11: FK Navigation
 
 See [Implementation Plan](docs/implementation_plan.md) for details.
 
 ## Contributing
 
-This project follows an 8-phase development plan (now complete). See [docs/implementation_plan.md](docs/implementation_plan.md) for the roadmap.
+This project follows an 11-phase development plan (now complete). See [docs/implementation_plan.md](docs/implementation_plan.md) for the roadmap.
 
 ## License
 

@@ -2585,6 +2585,309 @@ async def main():
 
 ---
 
+## Phase 11: FK Relationship Navigation ✅ COMPLETE
+
+Phase 11 adds foreign key navigation for traversing relationships between tables.
+
+### FK Metadata Property
+
+Check what foreign keys a table has:
+
+```python
+from deebase import Database, ForeignKey
+
+class Author:
+    id: int
+    name: str
+
+class Post:
+    id: int
+    author_id: ForeignKey[int, "author"]
+    title: str
+
+db = Database("sqlite+aiosqlite:///:memory:")
+authors = await db.create(Author, pk='id')
+posts = await db.create(Post, pk='id')
+
+# Check FK metadata
+print(posts.foreign_keys)
+# [{'column': 'author_id', 'references': 'author.id'}]
+
+# Tables without FKs have empty list
+print(authors.foreign_keys)
+# []
+```
+
+### Convenience API: table.fk
+
+Navigate to parent records with clean syntax:
+
+```python
+# Insert data
+alice = await authors.insert({"name": "Alice"})
+post = await posts.insert({
+    "author_id": alice["id"],
+    "title": "Intro to Python"
+})
+
+# Navigate to parent using FK accessor
+author = await posts.fk.author_id(post)
+print(author["name"])  # "Alice"
+```
+
+The `fk` accessor provides clean, intuitive syntax for forward FK navigation.
+
+### Power User API: get_parent()
+
+For more explicit control, use `get_parent()`:
+
+```python
+# Same result, more explicit
+author = await posts.get_parent(post, "author_id")
+print(author["name"])  # "Alice"
+```
+
+**When to use `get_parent()`:**
+- Building generic code where FK column is dynamic
+- When you want explicit control over FK navigation
+- In error handling scenarios
+
+### Reverse Navigation: get_children()
+
+Find all records that reference a parent:
+
+```python
+# Get all posts by an author
+author = await authors[1]
+author_posts = await authors.get_children(author, "post", "author_id")
+
+print(f"Author has {len(author_posts)} posts")
+for p in author_posts:
+    print(f"  - {p['title']}")
+```
+
+**Accepts string or Table object:**
+```python
+# String table name
+author_posts = await authors.get_children(author, "post", "author_id")
+
+# Or Table object
+author_posts = await authors.get_children(author, posts, "author_id")
+```
+
+### Return Values
+
+**`get_parent()` returns:**
+- Parent record (dict or dataclass) if found
+- `None` if FK value is `None` (nullable FK)
+- `None` if parent not found (dangling FK)
+
+**`get_children()` returns:**
+- List of child records (may be empty)
+
+```python
+# Nullable FK handling
+post_with_no_author = await posts.insert({
+    "author_id": None,  # Nullable FK
+    "title": "Anonymous Post"
+})
+author = await posts.get_parent(post_with_no_author, "author_id")
+print(author)  # None
+
+# Empty children list
+new_author = await authors.insert({"name": "Bob"})
+bob_posts = await authors.get_children(new_author, "post", "author_id")
+print(bob_posts)  # [] (empty list)
+```
+
+### Dataclass Support
+
+FK navigation respects the target table's dataclass setting:
+
+```python
+# Enable dataclass on authors
+AuthorDC = authors.dataclass()
+
+# Now get_parent returns dataclass instances
+post = await posts[1]
+author = await posts.get_parent(post, "author_id")
+
+print(type(author))  # <class 'Author'>
+print(author.name)   # Field access works!
+```
+
+### Chaining Navigation
+
+Navigate across multiple relationships:
+
+```python
+class Comment:
+    id: int
+    post_id: ForeignKey[int, "post"]
+    author_id: ForeignKey[int, "author"]
+    content: str
+
+comments = await db.create(Comment, pk='id')
+
+# Navigate: comment -> post -> author
+comment = await comments[1]
+post = await comments.get_parent(comment, "post_id")
+post_author = await posts.get_parent(post, "author_id")
+
+print(f"Comment on '{post['title']}' by {post_author['name']}")
+```
+
+### Error Handling
+
+```python
+from deebase import ValidationError, SchemaError
+
+# Invalid FK column
+try:
+    await posts.get_parent(post, "invalid_column")
+except ValidationError as e:
+    print(f"Column {e.field} not found")
+
+# Non-FK column
+try:
+    await posts.get_parent(post, "title")  # title is not an FK
+except ValidationError as e:
+    print(f"{e.field} is not a foreign key")
+
+# Child table not in cache
+try:
+    await authors.get_children(author, "nonexistent_table", "author_id")
+except SchemaError as e:
+    print(f"Table {e.table_name} not found")
+```
+
+### Works with Reflected Tables
+
+FK navigation also works with tables reflected from the database:
+
+```python
+# Create tables with raw SQL
+await db.q("""
+    CREATE TABLE parent (id INTEGER PRIMARY KEY, name TEXT)
+""")
+await db.q("""
+    CREATE TABLE child (
+        id INTEGER PRIMARY KEY,
+        parent_id INTEGER REFERENCES parent(id),
+        value TEXT
+    )
+""")
+
+# Reflect tables
+await db.reflect()
+
+parent = db.t.parent
+child = db.t.child
+
+# FK metadata is extracted during reflection
+print(child.foreign_keys)
+# [{'column': 'parent_id', 'references': 'parent.id'}]
+
+# Navigation works
+parent_record = await parent.insert({"name": "Test"})
+child_record = await child.insert({"parent_id": parent_record["id"], "value": "Hello"})
+
+found_parent = await child.get_parent(child_record, "parent_id")
+print(found_parent["name"])  # "Test"
+```
+
+### Complete Example
+
+```python
+from deebase import Database, ForeignKey, Text
+
+db = Database("sqlite+aiosqlite:///:memory:")
+await db.q("PRAGMA foreign_keys = ON")
+
+# Define schema
+class Author:
+    id: int
+    name: str
+    email: str
+
+class Category:
+    id: int
+    name: str
+
+class Post:
+    id: int
+    author_id: ForeignKey[int, "author"]
+    category_id: ForeignKey[int, "category"]
+    title: str
+    content: Text
+
+class Comment:
+    id: int
+    post_id: ForeignKey[int, "post"]
+    author_id: ForeignKey[int, "author"]
+    content: str
+
+# Create tables
+authors = await db.create(Author, pk='id')
+categories = await db.create(Category, pk='id')
+posts = await db.create(Post, pk='id')
+comments = await db.create(Comment, pk='id')
+
+# Insert data
+alice = await authors.insert({"name": "Alice", "email": "alice@example.com"})
+bob = await authors.insert({"name": "Bob", "email": "bob@example.com"})
+tech = await categories.insert({"name": "Technology"})
+
+post = await posts.insert({
+    "author_id": alice["id"],
+    "category_id": tech["id"],
+    "title": "Intro to Python",
+    "content": "Python is great..."
+})
+
+comment = await comments.insert({
+    "post_id": post["id"],
+    "author_id": bob["id"],
+    "content": "Great post!"
+})
+
+# Forward navigation (convenience API)
+post_author = await posts.fk.author_id(post)
+post_category = await posts.fk.category_id(post)
+print(f"'{post['title']}' by {post_author['name']} in {post_category['name']}")
+
+# Reverse navigation
+alice_posts = await authors.get_children(alice, "post", "author_id")
+print(f"Alice has {len(alice_posts)} posts")
+
+post_comments = await posts.get_children(post, comments, "post_id")
+print(f"Post has {len(post_comments)} comments")
+
+# Chain navigation
+for c in post_comments:
+    comment_author = await comments.get_parent(c, "author_id")
+    print(f"  Comment by {comment_author['name']}: {c['content']}")
+
+await db.close()
+```
+
+### Testing
+
+- **26 new Phase 11 tests** - All passing ✅
+- **245 total tests** (Phases 1-11) - All passing ✅
+- Coverage:
+  - FK metadata from create() and reflection
+  - fk accessor convenience API
+  - get_parent() power user API
+  - get_children() reverse navigation
+  - Null FK handling
+  - Dangling FK handling (returns None)
+  - Dataclass integration
+  - Error handling
+  - xtra() filter preservation
+
+---
+
 ## Dependencies
 
 - Python 3.14+
@@ -2607,7 +2910,7 @@ The codebase is designed to be database-agnostic through SQLAlchemy's dialect sy
 
 ## Summary
 
-**All 10 Phases Complete! 🎉**
+**All 11 Phases Complete! 🎉**
 
 DeeBase is now feature-complete with:
 - ✅ **Async/await support** - Modern Python async for FastAPI and other frameworks
@@ -2616,6 +2919,7 @@ DeeBase is now feature-complete with:
 - ✅ **Rich type system** - Text, JSON, ForeignKey, datetime, Optional support
 - ✅ **CRUD operations** - Complete database operations (insert, update, upsert, delete, select, lookup)
 - ✅ **Foreign keys** - ForeignKey type annotation for relationships
+- ✅ **FK Navigation** - Navigate relationships with `table.fk.column(record)` and `get_children()`
 - ✅ **Default values** - Automatic extraction from class definitions
 - ✅ **Dynamic access** - Access tables with `db.t.tablename` after reflection
 - ✅ **Views support** - Read-only database views
@@ -2623,6 +2927,6 @@ DeeBase is now feature-complete with:
 - ✅ **Comprehensive error handling** - 6 specific exception types with rich context
 - ✅ **Code generation** - Export database schemas as Python dataclasses
 - ✅ **Complete documentation** - API reference, migration guide, examples
-- ✅ **219 passing tests** - Comprehensive test coverage
+- ✅ **245 passing tests** - Comprehensive test coverage
 
 **Ready for production use!**

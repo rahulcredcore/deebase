@@ -262,6 +262,12 @@ class Database:
                 )
             )
 
+        # Build FK metadata list for the Table (needed for both new and existing)
+        fk_metadata = [
+            {'column': col_name, 'references': f"{other_table}.{other_column}"}
+            for col_name, other_table, other_column in foreign_keys
+        ]
+
         # Check if table already exists in metadata
         if table_name in self._metadata.tables:
             if if_not_exists:
@@ -271,7 +277,9 @@ class Database:
                     table_name,
                     existing_table,
                     self._engine,
-                    dataclass_cls=cls
+                    dataclass_cls=cls,
+                    db=self,
+                    foreign_keys=fk_metadata,
                 )
                 self._cache_table(table_name, table_instance)
                 return table_instance
@@ -306,11 +314,14 @@ class Database:
                 raise
 
         # Create Table instance with the class as the dataclass
+        # (fk_metadata was built earlier, before the if_not_exists check)
         table_instance = Table(
             table_name,
             sa_table,
             self._engine,
-            dataclass_cls=cls
+            dataclass_cls=cls,
+            db=self,
+            foreign_keys=fk_metadata,
         )
 
         # Cache the table
@@ -343,8 +354,10 @@ class Database:
         for table_name, sa_table in reflect_metadata.tables.items():
             # Skip if already cached (e.g., from db.create())
             if table_name not in self._tables:
+                # Extract FK metadata from SQLAlchemy reflection
+                fk_metadata = self._extract_fk_metadata(sa_table)
                 # Create Table instance without dataclass (returns dicts by default)
-                table = Table(table_name, sa_table, self._engine)
+                table = Table(table_name, sa_table, self._engine, db=self, foreign_keys=fk_metadata)
                 self._cache_table(table_name, table)
 
     async def reflect_table(self, name: str) -> Table:
@@ -374,8 +387,11 @@ class Database:
 
             sa_table = await conn.run_sync(_reflect_table)
 
+        # Extract FK metadata from SQLAlchemy reflection
+        fk_metadata = self._extract_fk_metadata(sa_table)
+
         # Wrap and cache
-        table = Table(name, sa_table, self._engine)
+        table = Table(name, sa_table, self._engine, db=self, foreign_keys=fk_metadata)
         self._cache_table(name, table)
 
         return table
@@ -508,6 +524,27 @@ class Database:
             table: Table instance to cache
         """
         self._tables[name] = table
+
+    def _extract_fk_metadata(self, sa_table: sa.Table) -> list[dict]:
+        """Extract foreign key metadata from a SQLAlchemy Table.
+
+        Args:
+            sa_table: SQLAlchemy Table object
+
+        Returns:
+            List of FK definitions: [{'column': str, 'references': 'table.column'}, ...]
+        """
+        fk_metadata = []
+        for fk in sa_table.foreign_keys:
+            # fk.parent is the local column, fk.column is the referenced column
+            local_col = fk.parent.name
+            # fk.target_fullname gives us "table.column"
+            ref_full = fk.target_fullname
+            fk_metadata.append({
+                'column': local_col,
+                'references': ref_full
+            })
+        return fk_metadata
 
     async def close(self) -> None:
         """Close the database connection and dispose of the engine."""

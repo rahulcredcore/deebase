@@ -936,8 +936,122 @@ await view.drop()
 - Mutable defaults (dict, list, default_factory) are skipped for SQL defaults
 - Input/output behavior unchanged (regular class → dicts, dataclass → instances)
 
-**Future Phases (see docs/phase11_12_future.md):**
-- Phase 11: FK relationship navigation (get_parent, get_children)
+---
+
+### Phase 11: FK Relationship Navigation
+
+**Status:** Planned
+
+**Goal:** Enable navigation from tables to related records via foreign keys, with clean syntax for forward navigation and power-user API for reverse lookups.
+
+**Design Decisions:**
+1. `get_children()` accepts both string table name and Table object
+2. Parent not found returns `None` (not NotFoundError)
+3. Return type respects target table's dataclass setting
+4. FK metadata sourced from both annotations (`create()`) and SQLAlchemy reflection
+
+**API Overview:**
+
+```python
+from deebase import Database, ForeignKey
+
+class User:
+    id: int
+    name: str
+
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]
+    title: str
+
+users = await db.create(User, pk='id')
+posts = await db.create(Post, pk='id')
+
+# 1. FK metadata property
+posts.foreign_keys
+# -> [{'column': 'author_id', 'references': 'user.id'}]
+
+# 2. Clean forward navigation via fk accessor
+post = await posts[1]
+author = await posts.fk.author_id(post)  # -> User dict/dataclass or None
+
+# 3. Verbose forward navigation (documented API)
+author = await posts.get_parent(post, "author_id")
+
+# 4. Reverse navigation - power user API
+user = await users[1]
+user_posts = await users.get_children(user, "posts", "author_id")  # -> [Post, ...]
+# Also accepts Table object:
+user_posts = await users.get_children(user, posts, "author_id")
+```
+
+**Implementation Details:**
+
+1. **`table.foreign_keys` property**
+   - Returns list of FK definitions: `[{'column': str, 'references': 'table.column'}, ...]`
+   - Populated during `create()` from `ForeignKey[T, "table"]` annotations
+   - Populated during reflection from SQLAlchemy FK inspection
+   - Cached on Table instance
+
+2. **`FKAccessor` class (table.fk)**
+   - Accessed via `table.fk.column_name(record)`
+   - `__getattr__` returns a callable that takes a record
+   - Returns awaitable (async def internally)
+   - Validates FK column exists, raises `ValidationError` if not
+
+3. **`table.get_parent(record, fk_column)` method**
+   - Extract FK value from record
+   - If FK value is None, return None (nullable FK)
+   - Look up referenced table from FK metadata
+   - Fetch parent via `parent_table[fk_value]`
+   - If parent not found, return None (dangling FK)
+   - Respect target table's dataclass setting for return type
+
+4. **`table.get_children(record, child_table, fk_column)` method**
+   - Accept child_table as string or Table object
+   - If string, look up in `db._tables` cache
+   - Extract PK value from record
+   - Query child table with `fk_column = pk_value`
+   - Return list of matching records (empty list if none)
+   - Respect child table's dataclass setting
+
+**What We're NOT Implementing:**
+- Connected record wrapper (`post.fk.author_id` on record itself) - maybe later
+- Auto-discovery of reverse relationships
+- `table.children.other_table` style accessor
+- Automatic lazy loading (causes N+1 problems)
+- ORM-style `relationship()` definitions
+- Cascade handling (use database constraints)
+- Eager loading (use `db.q()` with JOINs)
+
+**Tests (~20 new tests):**
+- `foreign_keys` property from `create()` with FK annotations
+- `foreign_keys` property from reflection
+- `fk.column_name(record)` forward navigation
+- `get_parent()` with valid FK
+- `get_parent()` with None FK value (nullable)
+- `get_parent()` with dangling FK (returns None)
+- `get_parent()` with invalid column (ValidationError)
+- `get_children()` with string table name
+- `get_children()` with Table object
+- `get_children()` returns empty list when no children
+- `get_children()` with invalid table (SchemaError)
+- Return type respects dataclass setting
+- Works with composite PKs
+- Works with reflected tables
+
+**Deliverables:**
+- `FKAccessor` class in new file or table.py
+- `table.foreign_keys` property
+- `table.fk` accessor
+- `table.get_parent()` method
+- `table.get_children()` method
+- FK metadata storage during create/reflect
+- ~20 new tests
+- Phase 11 example file
+- Updated documentation
+
+**Future Phases (see docs/phase12_future.md):**
 - Phase 12: Explicit indexes and FTS
 
 ---

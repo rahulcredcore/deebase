@@ -1,7 +1,7 @@
 """
 Complete Example: Building a Blog Database
 
-This example showcases ALL DeeBase capabilities from Phases 1-10:
+This example showcases ALL DeeBase capabilities from Phases 1-11:
 - Phase 1: Raw SQL queries
 - Phase 2: Table creation from Python classes
 - Phase 3: CRUD operations with rich types
@@ -12,6 +12,7 @@ This example showcases ALL DeeBase capabilities from Phases 1-10:
 - Phase 8: Exception handling with rich context
 - Phase 9: Transactions for atomic operations
 - Phase 10: Foreign keys and default values
+- Phase 11: FK relationship navigation
 """
 
 import asyncio
@@ -27,7 +28,7 @@ from deebase import (
 async def main():
     print("=" * 70)
     print("Complete Example: Full-Featured Blog Database")
-    print("Showcasing ALL DeeBase capabilities (Phases 1-10)")
+    print("Showcasing ALL DeeBase capabilities (Phases 1-11)")
     print("=" * 70)
     print()
 
@@ -268,9 +269,44 @@ async def main():
     print()
 
     # =========================================================================
+    # Phase 11: FK Navigation
+    # =========================================================================
+    print("7. FK Navigation (Phase 11)")
+    print("-" * 70)
+
+    # Check FK metadata
+    print(f"   Post.foreign_keys:")
+    for fk in posts.foreign_keys:
+        print(f"      {fk['column']} -> {fk['references']}")
+
+    # Convenience API: Navigate from post to author
+    post_record = await posts[1]
+    author_via_fk = await posts.fk.author_id(post_record)
+    print(f"\n   Convenience API: posts.fk.author_id(post)")
+    print(f"      Post: '{post_record['title']}'")
+    print(f"      Author: {author_via_fk['name']}")
+
+    # Power user API: Navigate using get_parent
+    category_via_parent = await posts.get_parent(post_record, "category_id")
+    print(f"\n   Power user API: posts.get_parent(post, 'category_id')")
+    print(f"      Category: {category_via_parent['name']}")
+
+    # Reverse navigation: Get all posts by an author
+    alice_record = await authors.lookup(name="Alice Smith")
+    alice_posts = await authors.get_children(alice_record, "post", "author_id")
+    print(f"\n   Reverse navigation: authors.get_children(alice, 'post', 'author_id')")
+    print(f"      Alice's posts: {len(alice_posts)}")
+
+    # Get comments on a post
+    post_comments = await posts.get_children(post_record, comments, "post_id")
+    print(f"\n   Reverse navigation: posts.get_children(post, comments, 'post_id')")
+    print(f"      Comments on '{post_record['title']}': {len(post_comments)}")
+    print()
+
+    # =========================================================================
     # Phase 4: Dataclass Support
     # =========================================================================
-    print("7. Dataclass support for type safety (Phase 4)")
+    print("8. Dataclass support for type safety (Phase 4)")
     print("-" * 70)
 
     # Generate dataclass from table
@@ -286,7 +322,7 @@ async def main():
     # =========================================================================
     # Phase 7: Views
     # =========================================================================
-    print("8. Database views (Phase 7)")
+    print("9. Database views (Phase 7)")
     print("-" * 70)
 
     # Create view for published posts with author info
@@ -316,7 +352,7 @@ async def main():
     # =========================================================================
     # Phase 5: Reflection & Dynamic Access
     # =========================================================================
-    print("9. Reflection and dynamic access (Phase 5)")
+    print("10. Reflection and dynamic access (Phase 5)")
     print("-" * 70)
 
     # Create a table with raw SQL
@@ -349,7 +385,7 @@ async def main():
     # =========================================================================
     # Phase 1: Raw SQL (with JOIN)
     # =========================================================================
-    print("10. Complex queries with raw SQL (Phase 1)")
+    print("11. Complex queries with raw SQL (Phase 1)")
     print("-" * 70)
 
     results = await db.q("""
@@ -375,7 +411,7 @@ async def main():
     # =========================================================================
     # Schema Inspection
     # =========================================================================
-    print("11. Schema inspection")
+    print("12. Schema inspection")
     print("-" * 70)
     print("\nPost table schema (showing FK constraints and defaults):")
     print(posts.schema)
@@ -384,7 +420,7 @@ async def main():
     # =========================================================================
     # Cleanup
     # =========================================================================
-    print("12. Cleanup")
+    print("13. Cleanup")
     print("-" * 70)
     await published_view.drop()
     await comments.drop()
@@ -399,7 +435,7 @@ async def main():
 
     print("=" * 70)
     print("Complete example finished successfully!")
-    print("All 10 phases demonstrated.")
+    print("All 11 phases demonstrated.")
     print("=" * 70)
 
 

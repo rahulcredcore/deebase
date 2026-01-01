@@ -394,6 +394,34 @@ Access the underlying SQLAlchemy Table object.
 
 **Returns:** `sqlalchemy.Table`
 
+#### `table.foreign_keys`
+
+List of foreign key definitions for this table.
+
+**Returns:** `list[dict]` - List of FK definitions: `[{'column': str, 'references': 'table.column'}, ...]`
+
+**Example:**
+```python
+print(posts.foreign_keys)
+# [{'column': 'author_id', 'references': 'users.id'},
+#  {'column': 'category_id', 'references': 'categories.id'}]
+```
+
+#### `table.fk`
+
+Access foreign key navigation. Provides clean syntax for following foreign keys.
+
+**Returns:** `FKAccessor`
+
+**Example:**
+```python
+# Navigate from post to author via FK
+post = await posts[1]
+author = await posts.fk.author_id(post)  # Returns author record or None
+```
+
+See [get_parent()](#async-tableget_parentrecord-fk_column---dict--any--none) for the power user API.
+
 ### Methods
 
 #### `table.dataclass() -> type`
@@ -678,6 +706,96 @@ Drop the table from the database.
 **Example:**
 ```python
 await users.drop()
+```
+
+#### `async table.get_parent(record, fk_column) -> dict | Any | None`
+
+Navigate to a parent record via a foreign key column. This is the power user API for FK navigation.
+
+**When to use:**
+- Following foreign key relationships to fetch related records
+- When you need explicit control over which FK to follow
+- Building navigation chains across multiple tables
+
+**When NOT to use:**
+- Simple FK navigation (use `table.fk.column_name(record)` convenience API)
+- Bulk loading related records (use raw SQL with JOINs via `db.q()`)
+
+**Parameters:**
+- `record` (dict | dataclass | object): Record containing the FK value
+- `fk_column` (str): Name of the FK column in this table
+
+**Returns:** Parent record (dict or dataclass based on target table's setting), or `None` if:
+- FK value is `None` (nullable FK)
+- Parent record not found (dangling FK)
+
+**Raises:**
+- `ValidationError`: Column doesn't exist or isn't an FK
+- `SchemaError`: Referenced table not found in cache
+
+**Example:**
+```python
+# Get post and navigate to its author
+post = await posts[1]
+author = await posts.get_parent(post, "author_id")
+
+if author:
+    print(f"Author: {author['name']}")
+else:
+    print("Author not found")
+
+# Chain navigation: comment -> post -> author
+comment = await comments[1]
+post = await comments.get_parent(comment, "post_id")
+author = await posts.get_parent(post, "author_id")
+```
+
+**Convenience API:**
+```python
+# Equivalent but more concise:
+author = await posts.fk.author_id(post)
+```
+
+#### `async table.get_children(record, child_table, fk_column) -> list[dict | Any]`
+
+Find child records that reference this record via a foreign key.
+
+**When to use:**
+- Finding all records that reference a parent (e.g., all posts by an author)
+- Reverse FK navigation
+- Building one-to-many relationship queries
+
+**When NOT to use:**
+- Complex queries with filtering (use raw SQL via `db.q()`)
+- Bulk loading with multiple parents (use raw SQL with JOINs)
+
+**Parameters:**
+- `record` (dict | dataclass | object): Parent record
+- `child_table` (str | Table): Child table name or Table object
+- `fk_column` (str): Name of the FK column in the child table
+
+**Returns:** `list` - List of child records (empty if no children). Respects child table's dataclass setting.
+
+**Raises:**
+- `SchemaError`: Child table not found in cache
+- `ValidationError`: FK column not found in child table, or PK not extractable from record
+
+**Example:**
+```python
+# Get all posts by an author
+user = await users[1]
+user_posts = await users.get_children(user, "post", "author_id")
+
+# Get all comments on a post
+post = await posts[1]
+comments = await posts.get_children(post, "comment", "post_id")
+
+# Using Table object instead of string
+user_posts = await users.get_children(user, posts, "author_id")
+
+# Check for empty result
+if not user_posts:
+    print("No posts found")
 ```
 
 ---
@@ -1166,6 +1284,40 @@ create_mod_from_tables(
 
 # Now you can import from models.py
 # from models import User, Post, Comment
+```
+
+### FK Navigation
+
+```python
+from deebase import Database, ForeignKey
+
+class Author:
+    id: int
+    name: str
+
+class Post:
+    id: int
+    author_id: ForeignKey[int, "author"]
+    title: str
+
+# Create tables
+authors = await db.create(Author, pk='id')
+posts = await db.create(Post, pk='id')
+
+# Check FK metadata
+print(posts.foreign_keys)
+# [{'column': 'author_id', 'references': 'author.id'}]
+
+# Forward navigation: post -> author
+post = await posts[1]
+author = await posts.fk.author_id(post)  # Convenience API
+# or: author = await posts.get_parent(post, "author_id")  # Power user API
+
+# Reverse navigation: author -> posts
+author = await authors[1]
+author_posts = await authors.get_children(author, "post", "author_id")
+for p in author_posts:
+    print(p['title'])
 ```
 
 ---

@@ -392,6 +392,94 @@ class Post:
    category_slug: ForeignKey[str, "category.slug"]
    ```
 
+### FK Navigation
+
+DeeBase provides two APIs for navigating FK relationships:
+
+#### Convenience API: `table.fk.column(record)`
+
+```python
+# Navigate from post to author
+post = await posts[1]
+author = await posts.fk.author_id(post)
+print(author['name'])
+```
+
+**Use this when:**
+- FK column is known at coding time
+- You want clean, readable syntax
+- Following a single FK
+
+#### Power User API: `get_parent()` and `get_children()`
+
+```python
+# Forward navigation
+author = await posts.get_parent(post, "author_id")
+
+# Reverse navigation
+author_posts = await authors.get_children(author, "post", "author_id")
+```
+
+**Use this when:**
+- FK column is dynamic (stored in variable)
+- Building generic code
+- Navigating in reverse direction
+
+#### Navigation Best Practices
+
+1. **Use convenience API for simple navigation**
+   ```python
+   # ✅ Clean and readable
+   author = await posts.fk.author_id(post)
+
+   # ❌ More verbose for simple cases
+   author = await posts.get_parent(post, "author_id")
+   ```
+
+2. **Check for None returns** - FK navigation returns None for nullable FKs and dangling FKs
+   ```python
+   author = await posts.fk.author_id(post)
+   if author:
+       print(author['name'])
+   else:
+       print("No author found")
+   ```
+
+3. **Avoid N+1 queries** - Don't navigate FKs in loops for bulk data
+   ```python
+   # ❌ N+1 problem: one query per post
+   posts = await posts_table()
+   for post in posts:
+       author = await posts_table.fk.author_id(post)  # N additional queries
+
+   # ✅ Use JOIN for bulk data
+   results = await db.q("""
+       SELECT p.*, u.name as author_name
+       FROM post p
+       JOIN user u ON p.author_id = u.id
+   """)
+   ```
+
+4. **Ensure referenced tables are cached** - Navigation requires target tables in cache
+   ```python
+   # ❌ Will fail if 'author' not in cache
+   author = await posts.fk.author_id(post)
+
+   # ✅ Ensure tables are cached first
+   await db.reflect()  # Or create tables
+   author = await posts.fk.author_id(post)
+   ```
+
+5. **Navigation respects dataclass settings** - Return type matches target table's configuration
+   ```python
+   # Enable dataclass on authors
+   AuthorDC = authors.dataclass()
+
+   # Navigation now returns AuthorDC
+   author = await posts.fk.author_id(post)
+   print(author.name)  # Field access works
+   ```
+
 ### Default Values
 
 Use Python class defaults for SQL DEFAULT values:

@@ -2803,6 +2803,216 @@ users = await db.create(User, pk='id', if_not_exists=True)  # OK
 
 ---
 
+## 11. FK Navigation Implementation (Phase 11)
+
+Phase 11 adds foreign key navigation - the ability to traverse relationships between tables.
+
+### Architecture
+
+```
+posts.fk.author_id(post)  # Convenience API
+        │
+        ▼
+    FKAccessor             # Handles attribute access
+        │
+        ▼
+table.get_parent()         # Power user API
+        │
+        ▼
+    _foreign_keys          # FK metadata list
+        │
+        ▼
+    parent_table[fk_value] # Standard Table.__getitem__
+```
+
+### FK Metadata Storage
+
+FK metadata is stored on each Table instance:
+
+```python
+# In Table.__init__
+self._foreign_keys = foreign_keys or []
+
+# Format: list of dicts
+# [{'column': 'author_id', 'references': 'user.id'}, ...]
+```
+
+**Source of FK metadata:**
+1. **From `db.create()`**: Parsed from `ForeignKey[T, "table"]` annotations
+2. **From reflection**: Extracted from SQLAlchemy's FK inspection
+
+```python
+# In Database._extract_fk_metadata()
+def _extract_fk_metadata(self, sa_table: sa.Table) -> list[dict]:
+    fk_metadata = []
+    for fk in sa_table.foreign_keys:
+        local_col = fk.parent.name
+        ref_full = fk.target_fullname  # "table.column"
+        fk_metadata.append({
+            'column': local_col,
+            'references': ref_full
+        })
+    return fk_metadata
+```
+
+### FKAccessor Class
+
+The convenience API uses Python's `__getattr__` for clean syntax:
+
+```python
+class FKAccessor:
+    def __init__(self, table: "Table"):
+        self._table = table
+
+    def __getattr__(self, fk_column: str):
+        """Return callable for navigation."""
+        async def navigate(record: dict | Any) -> dict | Any | None:
+            return await self._table.get_parent(record, fk_column)
+        return navigate
+```
+
+**Key insight:** `__getattr__` returns an async function (not awaitable directly), which is then called with the record.
+
+```python
+# User writes:
+author = await posts.fk.author_id(post)
+
+# Becomes:
+accessor = posts.fk
+navigate_func = accessor.__getattr__("author_id")
+author = await navigate_func(post)
+```
+
+### get_parent() Implementation
+
+The core navigation logic:
+
+```python
+async def get_parent(self, record, fk_column):
+    # 1. Convert record to dict
+    data = self._from_input(record)
+
+    # 2. Validate FK column exists
+    if fk_column not in self._sa_table.c:
+        raise ValidationError(...)
+
+    # 3. Find FK definition
+    fk_def = None
+    for fk in self._foreign_keys:
+        if fk['column'] == fk_column:
+            fk_def = fk
+            break
+
+    if fk_def is None:
+        raise ValidationError(f"'{fk_column}' is not a foreign key")
+
+    # 4. Get FK value
+    fk_value = data.get(fk_column)
+    if fk_value is None:
+        return None  # Nullable FK
+
+    # 5. Parse reference (e.g., "user.id")
+    ref_parts = fk_def['references'].split('.')
+    ref_table = ref_parts[0]
+
+    # 6. Get parent table from cache
+    parent_table = self._db._get_table(ref_table)
+    if parent_table is None:
+        raise SchemaError(f"Referenced table '{ref_table}' not found")
+
+    # 7. Fetch parent record
+    try:
+        return await parent_table[fk_value]
+    except NotFoundError:
+        return None  # Dangling FK
+```
+
+### get_children() Implementation
+
+Reverse navigation queries the child table:
+
+```python
+async def get_children(self, record, child_table, fk_column):
+    # 1. Extract PK from record
+    data = self._from_input(record)
+    pk_value = data.get(pk_col.name)
+
+    # 2. Resolve child table (string or Table)
+    if isinstance(child_table, str):
+        resolved_table = self._db._get_table(child_table)
+    else:
+        resolved_table = child_table
+
+    # 3. Query child table
+    async with resolved_table._session_scope() as (session, should_manage):
+        stmt = sa.select(resolved_table._sa_table).where(
+            resolved_table._sa_table.c[fk_column] == pk_value
+        )
+        result = await session.execute(stmt)
+        rows = result.fetchall()
+        return [resolved_table._to_record(row) for row in rows]
+```
+
+### Database Reference
+
+Navigation requires access to other tables via `_db` reference:
+
+```python
+# In Table.__init__
+self._db = db  # Reference to Database instance
+
+# In Database.create()
+table_instance = Table(
+    table_name, sa_table, self._engine,
+    dataclass_cls=cls,
+    db=self,  # Pass reference
+    foreign_keys=fk_metadata,
+)
+```
+
+### Return Type Handling
+
+Navigation respects the target table's dataclass setting:
+
+```python
+# In get_parent()
+return await parent_table[fk_value]
+
+# parent_table[fk_value] uses parent's _to_record()
+# which returns dict or dataclass based on parent's _dataclass_cls
+```
+
+### Why Not ORM-Style `post.author`?
+
+We chose explicit navigation (`posts.fk.author_id(post)`) over implicit (`post.author`) because:
+
+1. **Async requirement**: Python attribute access is synchronous
+2. **No session tracking**: Our records are plain dicts/dataclasses, not ORM-managed objects
+3. **Explicit is better**: Clear what triggers a database query
+4. **No N+1 by accident**: Users must consciously navigate
+
+### Performance Considerations
+
+**Single record navigation:** O(1) database query per navigation
+```python
+author = await posts.fk.author_id(post)  # 1 query
+```
+
+**Bulk navigation:** Use JOINs instead of N+1
+```python
+# ❌ N queries
+for post in posts:
+    author = await posts_table.fk.author_id(post)
+
+# ✅ 1 query with JOIN
+results = await db.q("""
+    SELECT p.*, u.name as author_name
+    FROM post p JOIN user u ON p.author_id = u.id
+""")
+```
+
+---
+
 ## Key Takeaways
 
 1. **SQLAlchemy Core, Not ORM**: We use Tables and Columns directly, not ORM models

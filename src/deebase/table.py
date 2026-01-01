@@ -1,6 +1,6 @@
 """Table class for database table operations."""
 
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from contextlib import asynccontextmanager
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -14,6 +14,41 @@ from .exceptions import (
     SchemaError,
 )
 from .dataclass_utils import record_to_dict, dict_to_dataclass, make_table_dataclass
+
+if TYPE_CHECKING:
+    from .database import Database
+
+
+class FKAccessor:
+    """Accessor for foreign key navigation.
+
+    Provides clean syntax for following foreign keys:
+        author = await posts.fk.author_id(post)
+
+    This is equivalent to the verbose API:
+        author = await posts.get_parent(post, "author_id")
+    """
+
+    def __init__(self, table: "Table"):
+        """Initialize the FKAccessor.
+
+        Args:
+            table: The Table instance this accessor belongs to
+        """
+        self._table = table
+
+    def __getattr__(self, fk_column: str):
+        """Return a callable for navigating via the specified FK column.
+
+        Args:
+            fk_column: Name of the foreign key column
+
+        Returns:
+            Async callable that takes a record and returns the parent
+        """
+        async def navigate(record: dict | Any) -> dict | Any | None:
+            return await self._table.get_parent(record, fk_column)
+        return navigate
 
 
 class Table:
@@ -29,7 +64,9 @@ class Table:
         sa_table: sa.Table,
         engine: AsyncEngine,
         dataclass_cls: Optional[type] = None,
-        xtra_filters: Optional[dict] = None
+        xtra_filters: Optional[dict] = None,
+        db: Optional["Database"] = None,
+        foreign_keys: Optional[list[dict]] = None,
     ):
         """Initialize a Table.
 
@@ -39,12 +76,16 @@ class Table:
             engine: AsyncEngine for database operations
             dataclass_cls: Optional dataclass for typed returns
             xtra_filters: Optional filters to apply to all operations
+            db: Optional Database reference for FK navigation
+            foreign_keys: Optional list of FK definitions
         """
         self._name = name
         self._sa_table = sa_table
         self._engine = engine
         self._dataclass_cls = dataclass_cls
         self._xtra_filters = xtra_filters or {}
+        self._db = db
+        self._foreign_keys = foreign_keys or []
 
     def _get_active_session(self) -> Optional[AsyncSession]:
         """Get the active transaction session if one exists."""
@@ -93,6 +134,34 @@ class Table:
         """Expose the underlying SQLAlchemy Table object."""
         return self._sa_table
 
+    @property
+    def foreign_keys(self) -> list[dict]:
+        """List of foreign key definitions for this table.
+
+        Returns:
+            List of dicts with 'column' and 'references' keys.
+
+        Example:
+            >>> posts.foreign_keys
+            [{'column': 'author_id', 'references': 'users.id'}]
+        """
+        return self._foreign_keys.copy()
+
+    @property
+    def fk(self) -> FKAccessor:
+        """Access foreign key navigation.
+
+        Provides clean syntax for following foreign keys:
+            author = await posts.fk.author_id(post)
+
+        This is the convenience API. The equivalent power user API is:
+            author = await posts.get_parent(post, "author_id")
+
+        Returns:
+            FKAccessor for FK navigation
+        """
+        return FKAccessor(self)
+
     def dataclass(self) -> type:
         """Generate or return the dataclass for this table.
 
@@ -127,7 +196,9 @@ class Table:
             self._sa_table,
             self._engine,
             self._dataclass_cls,
-            new_filters
+            new_filters,
+            self._db,
+            self._foreign_keys,
         )
 
     async def insert(self, record: dict | Any) -> dict | Any:
@@ -646,6 +717,186 @@ class Table:
         """
         # TODO: Implement in Phase 8
         raise NotImplementedError("transform() will be implemented in Phase 8")
+
+    async def get_parent(self, record: dict | Any, fk_column: str) -> dict | Any | None:
+        """Navigate to parent record via a foreign key column.
+
+        This is the power user API for FK navigation. For convenience, use:
+            author = await posts.fk.author_id(post)
+
+        Args:
+            record: The record containing the FK value (dict or dataclass)
+            fk_column: Name of the FK column in this table
+
+        Returns:
+            Parent record as dict or dataclass (respecting target table's setting),
+            or None if FK value is None or parent not found.
+
+        Raises:
+            ValidationError: If fk_column doesn't exist or isn't an FK
+            SchemaError: If referenced table not found in cache
+
+        Example:
+            >>> post = await posts[1]
+            >>> author = await posts.get_parent(post, "author_id")
+            >>> if author:
+            ...     print(author['name'])
+        """
+        # Convert record to dict for consistent access
+        data = self._from_input(record)
+
+        # Validate FK column exists
+        if fk_column not in self._sa_table.c:
+            raise ValidationError(
+                f"Column '{fk_column}' not found in table '{self._name}'",
+                field=fk_column
+            )
+
+        # Find FK definition for this column
+        fk_def = None
+        for fk in self._foreign_keys:
+            if fk['column'] == fk_column:
+                fk_def = fk
+                break
+
+        if fk_def is None:
+            raise ValidationError(
+                f"Column '{fk_column}' is not a foreign key in table '{self._name}'",
+                field=fk_column
+            )
+
+        # Get FK value from record
+        fk_value = data.get(fk_column)
+
+        # If FK value is None (nullable FK), return None
+        if fk_value is None:
+            return None
+
+        # Parse the reference (format: "table.column")
+        ref_parts = fk_def['references'].split('.')
+        ref_table = ref_parts[0]
+        ref_column = ref_parts[1] if len(ref_parts) > 1 else 'id'
+
+        # Get the referenced table from db cache
+        if self._db is None:
+            raise SchemaError(
+                f"Cannot navigate FK: Database reference not set for table '{self._name}'",
+                table_name=self._name
+            )
+
+        parent_table = self._db._get_table(ref_table)
+        if parent_table is None:
+            raise SchemaError(
+                f"Referenced table '{ref_table}' not found in cache. "
+                f"Use 'await db.reflect_table(\"{ref_table}\")' to load it.",
+                table_name=ref_table
+            )
+
+        # Fetch the parent record
+        # Note: We assume the FK points to the PK of the parent table
+        # For composite PKs, this would need enhancement
+        try:
+            return await parent_table[fk_value]
+        except NotFoundError:
+            # Parent not found (dangling FK) - return None per design decision
+            return None
+
+    async def get_children(
+        self,
+        record: dict | Any,
+        child_table: str | "Table",
+        fk_column: str
+    ) -> list[dict | Any]:
+        """Find child records that reference this record via a foreign key.
+
+        This is the power user API for reverse FK navigation.
+
+        Args:
+            record: The parent record (dict or dataclass)
+            child_table: Child table name (string) or Table object
+            fk_column: Name of the FK column in the child table
+
+        Returns:
+            List of child records (may be empty if no children found).
+            Respects child table's dataclass setting.
+
+        Raises:
+            SchemaError: If child table not found in cache
+            ValidationError: If PK cannot be extracted from record
+
+        Example:
+            >>> user = await users[1]
+            >>> user_posts = await users.get_children(user, "post", "author_id")
+            >>> # Or with Table object:
+            >>> user_posts = await users.get_children(user, posts, "author_id")
+        """
+        # Convert record to dict for consistent access
+        data = self._from_input(record)
+
+        # Get this table's primary key value
+        pk_cols = list(self._sa_table.primary_key.columns)
+        if not pk_cols:
+            raise ValidationError(
+                f"Table '{self._name}' has no primary key, cannot navigate to children",
+                field='primary_key'
+            )
+
+        # Extract PK value(s)
+        if len(pk_cols) == 1:
+            pk_value = data.get(pk_cols[0].name)
+        else:
+            pk_value = tuple(data.get(pk_col.name) for pk_col in pk_cols)
+
+        if pk_value is None or (isinstance(pk_value, tuple) and None in pk_value):
+            raise ValidationError(
+                f"Cannot extract primary key from record for table '{self._name}'",
+                field='primary_key'
+            )
+
+        # Resolve child_table if it's a string
+        if isinstance(child_table, str):
+            if self._db is None:
+                raise SchemaError(
+                    f"Cannot navigate to children: Database reference not set for table '{self._name}'",
+                    table_name=self._name
+                )
+            resolved_table = self._db._get_table(child_table)
+            if resolved_table is None:
+                raise SchemaError(
+                    f"Child table '{child_table}' not found in cache. "
+                    f"Use 'await db.reflect_table(\"{child_table}\")' to load it.",
+                    table_name=child_table
+                )
+        else:
+            # It's already a Table object
+            resolved_table = child_table
+
+        # Validate FK column exists in child table
+        if fk_column not in resolved_table._sa_table.c:
+            raise ValidationError(
+                f"Column '{fk_column}' not found in table '{resolved_table._name}'",
+                field=fk_column
+            )
+
+        # Query child table where fk_column = our PK value
+        async with resolved_table._session_scope() as (session, should_manage):
+            try:
+                stmt = sa.select(resolved_table._sa_table).where(
+                    resolved_table._sa_table.c[fk_column] == pk_value
+                )
+
+                result = await session.execute(stmt)
+                rows = result.fetchall()
+
+                if should_manage:
+                    await session.commit()
+
+                return [resolved_table._to_record(row) for row in rows]
+
+            except Exception:
+                if should_manage:
+                    await session.rollback()
+                raise
 
     def _to_dict(self, row: sa.Row) -> dict:
         """Convert a SQLAlchemy Row to a dict."""

@@ -1,37 +1,6 @@
-# Future Phases: FK Navigation & Indexes (Phase 11-12)
+# Future Phase: Indexes and Full-Text Search (Phase 12)
 
-This file contains planned features for Phase 11 and 12. These will be implemented after Phase 10 (Enhanced Create).
-
----
-
-## Phase 11: Foreign Key Relationship Navigation
-
-### Goal
-Enable simple navigation from one table to related rows via foreign keys.
-
-### Proposed API
-
-```python
-# Get parent record via FK
-post = await posts[1]
-author = await posts.get_parent(post, "author_id")  # -> User
-
-# Get child records that reference this record
-user = await users[1]
-user_posts = await users.get_children(user, "posts", "author_id")  # -> [Post, ...]
-```
-
-### Key Features
-- `table.foreign_keys` property - list FK definitions
-- `table.get_parent(record, fk_column)` - fetch referenced parent
-- `table.get_children(record, child_table, fk_column)` - fetch referencing children
-- Store FK metadata during create/reflect
-
-### What We Won't Implement
-- Automatic lazy loading (causes N+1 problems)
-- ORM-style relationship() definitions
-- Cascade handling (use database constraints)
-- Eager loading (use raw SQL)
+This file contains planned features for Phase 12. This will be implemented after Phase 11 (FK Navigation).
 
 ---
 
@@ -82,8 +51,8 @@ Recommend using `db.q()` for joins rather than adding a join API - keeps library
 
 ## Implementation Order
 
-1. **Phase 10** (current): Enhanced create() with ForeignKey type, defaults, if_not_exists, replace, transform
-2. **Phase 11** (future): FK navigation methods
+1. **Phase 10** (complete): Enhanced create() with ForeignKey type, defaults, if_not_exists, replace
+2. **Phase 11** (current): FK navigation methods
 3. **Phase 12** (future): Indexes and FTS
 
 Each phase builds on the previous one.

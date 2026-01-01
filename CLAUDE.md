@@ -27,7 +27,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 ## Project Status
 
-✅ **Phases 1-10 Complete** - Production-ready with FK support
+✅ **Phases 1-11 Complete** - Production-ready with FK navigation
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
@@ -39,6 +39,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 8 Complete** - Polish & Utilities
 ✅ **Phase 9 Complete** - Transaction Support
 ✅ **Phase 10 Complete** - Foreign Keys & Defaults
+✅ **Phase 11 Complete** - FK Navigation
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
@@ -58,8 +59,9 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Views support (`db.create_view()`, `db.v.viewname`, read-only operations)
 - ✅ Code generation (`dataclass_src()`, `create_mod()`, `create_mod_from_tables()`)
 - ✅ Transaction support (`db.transaction()`, atomic multi-operation commits)
+- ✅ FK navigation (`table.fk.column()`, `get_parent()`, `get_children()`)
 - ✅ Complete documentation (API reference, migration guide, examples)
-- ✅ 219 passing tests
+- ✅ 245 passing tests
 
 **Phase 8 Deliverables:**
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`
@@ -86,12 +88,22 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - Input flexibility: accepts both regular classes (→ dict rows) and dataclasses (→ dataclass rows)
 - 36 new tests (219 total passing tests)
 
+**Phase 11 Deliverables:**
+- `table.foreign_keys` property exposing FK metadata
+- `table.fk.column_name(record)` convenience API for FK navigation
+- `table.get_parent(record, fk_column)` power user API for parent navigation
+- `table.get_children(record, child_table, fk_column)` for reverse lookups
+- Returns None for null FKs or dangling references (no exceptions)
+- Respects target table's dataclass setting
+- Works with both created and reflected tables
+- 26 new tests (245 total passing tests)
+
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
 
 ## Basic Usage
 
-### Working Now (Phases 1-10)
+### Working Now (Phases 1-11)
 
 ```python
 from deebase import Database, Text, NotFoundError
@@ -293,6 +305,28 @@ try:
     await posts.insert({"author_id": 999, "title": "Invalid"})  # FK violation
 except IntegrityError:
     print("Author does not exist")
+
+# FK Navigation (Phase 11)
+
+# Convenience API - clean syntax for FK navigation
+author = await posts.fk.author_id(post)  # Get the author of this post
+print(author["name"])  # "Alice"
+
+# Power User API - explicit method calls
+author = await posts.get_parent(post, "author_id")
+
+# Get all children via FK
+user_posts = await users.get_children(user, "post", "author_id")
+for p in user_posts:
+    print(p["title"])
+
+# Access FK metadata
+print(posts.foreign_keys)
+# [{'column': 'author_id', 'references': 'user.id'}]
+
+# Safe navigation - returns None for null FKs or dangling references
+draft = await posts.insert({"author_id": None, "title": "Draft"})
+author = await posts.fk.author_id(draft)  # Returns None
 ```
 
 ## Architecture
@@ -405,7 +439,16 @@ src/deebase/
 - ✅ `replace` parameter to drop and recreate tables
 - ✅ 36 new tests (219 total passing)
 
-See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 10-phase roadmap.
+**Phase 11: FK Navigation** ✅ COMPLETE
+- ✅ `table.foreign_keys` property exposing FK metadata
+- ✅ `table.fk.column_name(record)` convenience API
+- ✅ `table.get_parent(record, fk_column)` power user API
+- ✅ `table.get_children(record, child_table, fk_column)` reverse lookup
+- ✅ Returns None for null/dangling FKs (no exceptions)
+- ✅ Respects target table's dataclass setting
+- ✅ 26 new tests (245 total passing)
+
+See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 11-phase roadmap.
 See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
 
 ## Examples
@@ -440,6 +483,9 @@ uv run examples/phase9_transactions.py
 # Phase 10: Foreign keys and defaults
 uv run examples/phase10_foreign_keys_defaults.py
 
+# Phase 11: FK navigation
+uv run examples/phase11_fk_navigation.py
+
 # Complete example: Blog database with full features
 uv run examples/complete_example.py
 ```
@@ -458,6 +504,7 @@ All examples use in-memory databases and demonstrate:
 - Comprehensive error handling with rich exception context
 - Code generation utilities (dataclass_src, create_mod, create_mod_from_tables)
 - Transaction support for atomic multi-operation commits
+- FK navigation (table.fk.column(), get_parent(), get_children())
 - Production-ready error handling patterns
 - Schema inspection
 - Practical usage patterns
@@ -499,7 +546,7 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 - **[docs/migrating_from_fastlite.md](docs/migrating_from_fastlite.md)** - Migration guide from fastlite
 - **[docs/how-it-works.md](docs/how-it-works.md)** - Technical guide explaining SQLAlchemy internals
 - **[docs/types_reference.md](docs/types_reference.md)** - Complete type system reference
-- **[docs/implementation_plan.md](docs/implementation_plan.md)** - 10-phase development roadmap
+- **[docs/implementation_plan.md](docs/implementation_plan.md)** - 11-phase development roadmap
 - **[examples/](examples/)** - Runnable code examples
 
 ## Development Workflow
@@ -507,7 +554,7 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 When implementing a new phase, follow this workflow:
 
 ### 1. Planning
-- Extract phase plans from `docs/phase11_12_future.md` (or create new)
+- Extract phase plans from `docs/phase12_future.md` (or create new)
 - Get user approval on the plan
 - Add approved plan to `docs/implementation_plan.md`
 
@@ -536,13 +583,12 @@ Update each documentation file:
 - `git add && git commit && git push`
 
 ### Future Phases
-See `docs/phase11_12_future.md` for planned features:
-- Phase 11: FK Navigation (relationship loading)
+See `docs/phase12_future.md` for planned features:
 - Phase 12: Indexes, FTS, Joins
 
 ## Contributing
 
-This project is production-ready. The implementation follows a 10-phase plan documented in `docs/implementation_plan.md`.
+This project is production-ready. The implementation follows an 11-phase plan documented in `docs/implementation_plan.md`.
 
 ## License
 
