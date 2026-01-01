@@ -2367,6 +2367,442 @@ Possible improvements:
 
 ---
 
+## 14. Foreign Keys & Defaults (Phase 10)
+
+Phase 10 enhances `db.create()` with foreign key constraints and automatic default value extraction using Python's native type system.
+
+### The Design Philosophy
+
+**Problem:** fastlite uses many parameters for create():
+```python
+# fastlite approach
+create(pk='id', foreign_keys=[("user_id", "users")], defaults={"status": "active"})
+```
+
+**Solution:** Use Python's native features:
+```python
+# DeeBase approach - Python's type system
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]  # FK via type annotation
+    status: str = "draft"                # Default via class attribute
+```
+
+### ForeignKey Type Implementation
+
+**What it does:**
+Provides a type annotation that encodes foreign key relationships.
+
+**Implementation using Generic and __class_getitem__:**
+```python
+# In types.py
+from typing import TypeVar, Generic
+
+T = TypeVar('T')
+
+class _ForeignKeyType:
+    """Internal class holding FK metadata."""
+    def __init__(self, base_type: type, table: str, column: str):
+        self.base_type = base_type
+        self.table = table
+        self.column = column
+
+class ForeignKey(Generic[T]):
+    """ForeignKey[int, "users"] or ForeignKey[int, "users.id"]"""
+
+    def __class_getitem__(cls, params) -> _ForeignKeyType:
+        # params is (int, "users") from ForeignKey[int, "users"]
+        if not isinstance(params, tuple) or len(params) != 2:
+            raise TypeError("ForeignKey requires two parameters: ForeignKey[type, 'table']")
+
+        base_type, reference = params
+
+        # Parse "table.column" or just "table" (default to 'id')
+        if '.' in reference:
+            table, column = reference.rsplit('.', 1)
+        else:
+            table, column = reference, 'id'
+
+        return _ForeignKeyType(base_type, table, column)
+```
+
+**How `__class_getitem__` works:**
+- Called when you write `ForeignKey[int, "users"]`
+- Receives the bracket contents as a tuple `(int, "users")`
+- Returns our custom `_ForeignKeyType` object
+- This object is stored in the class's `__annotations__`
+
+**Usage patterns:**
+```python
+# Reference user.id (default column)
+author_id: ForeignKey[int, "user"]
+
+# Reference user.uuid explicitly
+author_uuid: ForeignKey[str, "user.uuid"]
+```
+
+### Detecting ForeignKey in db.create()
+
+**How we check if a type is a ForeignKey:**
+```python
+# In database.py create() method
+from .types import _ForeignKeyType
+
+for field_name, field_type in annotations.items():
+    # Check if it's a ForeignKey annotation
+    if isinstance(field_type, _ForeignKeyType):
+        # Extract FK metadata
+        fk_base_type = field_type.base_type  # int
+        fk_table = field_type.table          # "user"
+        fk_column = field_type.column        # "id"
+
+        # Use base type for column definition
+        sa_type = python_type_to_sqlalchemy(fk_base_type)
+
+        # Store FK info for constraint generation
+        foreign_keys.append((field_name, fk_table, fk_column))
+    else:
+        # Normal type handling
+        sa_type = python_type_to_sqlalchemy(field_type)
+```
+
+### SQLAlchemy ForeignKeyConstraint Generation
+
+**Building FK constraints:**
+```python
+from sqlalchemy import ForeignKeyConstraint
+
+# After creating columns, add FK constraints
+constraints = []
+for local_col, ref_table, ref_col in foreign_keys:
+    fk = ForeignKeyConstraint(
+        [local_col],                    # Local column(s)
+        [f"{ref_table}.{ref_col}"]      # Reference "table.column"
+    )
+    constraints.append(fk)
+
+# Create table with constraints
+sa_table = sa.Table(
+    table_name,
+    self._metadata,
+    *columns,
+    *constraints  # Add FK constraints
+)
+```
+
+**Generated SQL:**
+```sql
+CREATE TABLE post (
+    id INTEGER NOT NULL,
+    title VARCHAR NOT NULL,
+    author_id INTEGER NOT NULL,
+    PRIMARY KEY (id),
+    FOREIGN KEY(author_id) REFERENCES user (id)
+)
+```
+
+### Default Value Extraction
+
+**What it does:**
+Extracts scalar default values from class definitions for SQL DEFAULT clauses.
+
+**Implementation:**
+```python
+# In dataclass_utils.py
+from dataclasses import is_dataclass, fields, MISSING as DC_MISSING
+
+MISSING = object()  # Sentinel for "no default"
+
+def extract_defaults(cls: type) -> dict[str, Any]:
+    """Extract scalar defaults from class (regular or dataclass)."""
+    defaults = {}
+
+    if is_dataclass(cls):
+        # Handle @dataclass
+        for f in fields(cls):
+            if f.default is not DC_MISSING:
+                # Only extract immutable scalars
+                if isinstance(f.default, (str, int, float, bool)):
+                    defaults[f.name] = f.default
+            # Note: default_factory is intentionally skipped
+    else:
+        # Handle regular class
+        for name in cls.__annotations__:
+            value = getattr(cls, name, MISSING)
+            if value is not MISSING:
+                # Only extract immutable scalars
+                if isinstance(value, (str, int, float, bool)):
+                    defaults[name] = value
+
+    return defaults
+```
+
+**Why only scalar types?**
+- `str`, `int`, `float`, `bool` can be directly translated to SQL defaults
+- Mutable types (`dict`, `list`) would share state between rows
+- `default_factory` is runtime behavior, not a SQL concept
+
+**Example:**
+```python
+class Article:
+    id: int
+    status: str = "draft"      # Extracted: SQL DEFAULT 'draft'
+    views: int = 0             # Extracted: SQL DEFAULT 0
+    featured: bool = False     # Extracted: SQL DEFAULT 0
+    metadata: dict = {}        # Skipped: mutable default
+```
+
+### SQLAlchemy server_default for SQL DEFAULTs
+
+**How defaults become SQL:**
+```python
+from sqlalchemy import Column, Integer, String, text
+
+# In db.create() - when building columns
+defaults = extract_defaults(cls)
+
+for field_name, field_type in annotations.items():
+    # ... type handling ...
+
+    # Check for default value
+    server_default = None
+    if field_name in defaults:
+        value = defaults[field_name]
+        if isinstance(value, str):
+            server_default = f"'{value}'"  # Quote strings
+        elif isinstance(value, bool):
+            server_default = "1" if value else "0"  # SQLite boolean
+        else:
+            server_default = str(value)  # Numbers as-is
+
+    col = sa.Column(
+        field_name,
+        sa_type,
+        primary_key=is_pk,
+        nullable=nullable,
+        server_default=sa.text(server_default) if server_default else None
+    )
+```
+
+**Generated SQL:**
+```sql
+CREATE TABLE article (
+    id INTEGER NOT NULL,
+    status VARCHAR DEFAULT 'draft',
+    views INTEGER DEFAULT 0,
+    featured BOOLEAN DEFAULT 0,
+    PRIMARY KEY (id)
+)
+```
+
+### if_not_exists Implementation
+
+**Challenge:** SQLAlchemy's table creation doesn't automatically handle "if not exists".
+
+**Solution:** Use `CreateTable` with `if_not_exists=True` and handle metadata collision.
+
+**Implementation:**
+```python
+async def create(
+    self,
+    cls: type,
+    pk: str | list[str] | None = None,
+    if_not_exists: bool = False,
+    replace: bool = False,
+) -> Table:
+    table_name = cls.__name__.lower()
+
+    # Handle existing table in metadata
+    if table_name in self._metadata.tables:
+        if replace:
+            # Drop existing table first
+            existing = self._metadata.tables[table_name]
+            async with self._session() as session:
+                await session.execute(sa.schema.DropTable(existing))
+            self._metadata.remove(existing)
+        elif if_not_exists:
+            # Return existing table wrapper
+            if table_name in self._tables:
+                return self._tables[table_name]
+        else:
+            # Error: table already in metadata
+            raise SchemaError(f"Table {table_name} already exists in metadata")
+
+    # Build table schema...
+    sa_table = sa.Table(table_name, self._metadata, *columns, *constraints)
+
+    # Execute CREATE TABLE
+    async with self._session() as session:
+        create_stmt = sa.schema.CreateTable(sa_table, if_not_exists=if_not_exists)
+        await session.execute(create_stmt)
+```
+
+**Key insight:** Two levels of "exists":
+1. **Metadata level** - Table object in SQLAlchemy's registry
+2. **Database level** - Actual table in database
+
+**if_not_exists=True:**
+- Check metadata first → return cached if exists
+- Use `CreateTable(..., if_not_exists=True)` for database level
+- Safely handles both levels
+
+### replace Implementation
+
+**What it does:**
+Drops existing table and recreates it fresh.
+
+**Implementation:**
+```python
+if replace:
+    # Check if table exists in metadata
+    if table_name in self._metadata.tables:
+        existing = self._metadata.tables[table_name]
+
+        # Drop from database
+        async with self._session() as session:
+            await session.execute(sa.schema.DropTable(existing))
+
+        # Remove from metadata (important!)
+        self._metadata.remove(existing)
+
+    # Remove from our cache
+    if table_name in self._tables:
+        del self._tables[table_name]
+```
+
+**Why remove from metadata?**
+- SQLAlchemy doesn't allow two tables with same name in metadata
+- `metadata.remove(table)` clears the registry
+- Allows creating new table with same name
+
+### Complete create() Flow with Phase 10
+
+```python
+# User code
+class Post:
+    id: int
+    title: str
+    author_id: ForeignKey[int, "user"]
+    status: str = "draft"
+    views: int = 0
+
+posts = await db.create(Post, pk='id', if_not_exists=True)
+```
+
+**Internal flow:**
+
+```
+1. Extract annotations
+   ↓
+2. Detect ForeignKey types
+   author_id → _ForeignKeyType(int, "user", "id")
+   ↓
+3. Extract defaults
+   {"status": "draft", "views": 0}
+   ↓
+4. Build columns with server_default
+   sa.Column('status', sa.String, server_default=text("'draft'"))
+   sa.Column('views', sa.Integer, server_default=text("0"))
+   ↓
+5. Build FK constraints
+   ForeignKeyConstraint(['author_id'], ['user.id'])
+   ↓
+6. Create sa.Table with columns + constraints
+   ↓
+7. Check if_not_exists for metadata collision
+   ↓
+8. Execute CreateTable(sa_table, if_not_exists=True)
+   ↓
+9. Wrap and cache Table
+```
+
+**Generated SQL:**
+```sql
+CREATE TABLE IF NOT EXISTS post (
+    id INTEGER NOT NULL,
+    title VARCHAR NOT NULL,
+    author_id INTEGER NOT NULL,
+    status VARCHAR DEFAULT 'draft',
+    views INTEGER DEFAULT 0,
+    PRIMARY KEY (id),
+    FOREIGN KEY(author_id) REFERENCES user (id)
+)
+```
+
+### Class vs Dataclass Behavior
+
+**Regular class → dict outputs:**
+```python
+class User:
+    id: int
+    name: str
+    status: str = "active"
+
+users = await db.create(User, pk='id')
+user = await users.insert({"name": "Alice"})
+print(type(user))  # dict
+print(user["status"])  # "active" (from SQL default)
+```
+
+**@dataclass → dataclass outputs:**
+```python
+@dataclass
+class User:
+    id: Optional[int] = None
+    name: str = ""
+    status: str = "active"
+
+users = await db.create(User, pk='id')
+user = await users.insert({"name": "Alice"})
+print(type(user))  # User
+print(user.status)  # "active" (from SQL default)
+```
+
+**Key insight:** The `@dataclass` decorator determines output type, not the defaults.
+
+### Error Handling
+
+**FK constraint violation:**
+```python
+from deebase import IntegrityError
+
+try:
+    await posts.insert({"title": "Hello", "author_id": 999})  # No user 999
+except IntegrityError as e:
+    print(f"FK violated: {e.constraint}")
+```
+
+**Schema collision:**
+```python
+from deebase import SchemaError
+
+# Without if_not_exists
+users = await db.create(User, pk='id')
+users = await db.create(User, pk='id')  # SchemaError!
+
+# With if_not_exists
+users = await db.create(User, pk='id', if_not_exists=True)  # OK
+```
+
+### Performance Notes
+
+**Defaults:**
+- `extract_defaults()` runs once at table creation
+- SQL DEFAULT computed by database, not Python
+- No runtime overhead for defaults
+
+**Foreign keys:**
+- FK constraints checked by database on INSERT/UPDATE
+- No Python-side validation (database handles it)
+- FK enforcement must be enabled in SQLite: `PRAGMA foreign_keys = ON`
+
+**if_not_exists:**
+- Single CREATE TABLE query
+- No separate "check if exists" query
+- Database handles the IF NOT EXISTS logic
+
+---
+
 ## Key Takeaways
 
 1. **SQLAlchemy Core, Not ORM**: We use Tables and Columns directly, not ORM models
@@ -2380,6 +2816,8 @@ Possible improvements:
 9. **Explicit Reflection**: Tables/views must be explicitly reflected before dynamic access
 10. **Read-Only Views**: Views inherit from Table but block write operations
 11. **Opt-In Type Safety**: Start with dicts, add dataclasses when needed
+12. **Foreign Keys via Type Annotations**: `ForeignKey[T, "table"]` encodes relationships in Python's type system
+13. **Defaults from Class Definitions**: Scalar class defaults become SQL DEFAULT clauses via `server_default`
 
 ## Further Reading
 

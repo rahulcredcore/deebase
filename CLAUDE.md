@@ -91,7 +91,7 @@ See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples 
 
 ## Basic Usage
 
-### Working Now (Phases 1-9)
+### Working Now (Phases 1-10)
 
 ```python
 from deebase import Database, Text, NotFoundError
@@ -255,6 +255,44 @@ except ValueError:
 
 # Backward compatible - operations without transactions still auto-commit
 await users.insert({"name": "Diana", "balance": 150})  # Auto-commits
+
+# Foreign Keys & Defaults (Phase 10)
+
+from deebase import ForeignKey
+
+# Define tables with FK relationships and defaults
+class User:
+    id: int
+    name: str
+    email: str
+    status: str = "active"  # SQL DEFAULT 'active'
+
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]  # FK to user.id
+    title: str
+    views: int = 0  # SQL DEFAULT 0
+
+users = await db.create(User, pk='id', if_not_exists=True)
+posts = await db.create(Post, pk='id', if_not_exists=True)
+
+# Enable FK enforcement in SQLite
+await db.q("PRAGMA foreign_keys = ON")
+
+# Insert user (status defaults to "active")
+user = await users.insert({"name": "Alice", "email": "alice@example.com"})
+
+# Insert post with FK (views defaults to 0)
+post = await posts.insert({
+    "author_id": user["id"],
+    "title": "Hello World"
+})
+
+# FK constraint enforced by database
+try:
+    await posts.insert({"author_id": 999, "title": "Invalid"})  # FK violation
+except IntegrityError:
+    print("Author does not exist")
 ```
 
 ## Architecture
@@ -359,7 +397,15 @@ src/deebase/
 - ✅ 22 new tests (183 total passing)
 - ✅ Zero breaking changes, fully backward compatible
 
-See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 9-phase roadmap.
+**Phase 10: Foreign Keys & Defaults** ✅ COMPLETE
+- ✅ `ForeignKey[T, "table"]` type annotation for FK relationships
+- ✅ `ForeignKey[T, "table.column"]` for explicit column references
+- ✅ Automatic extraction of scalar defaults from class definitions
+- ✅ `if_not_exists` parameter for safe table creation
+- ✅ `replace` parameter to drop and recreate tables
+- ✅ 36 new tests (219 total passing)
+
+See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 10-phase roadmap.
 See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
 
 ## Examples
@@ -391,6 +437,9 @@ uv run examples/phase8_polish_utilities.py
 # Phase 9: Transaction support
 uv run examples/transactions.py
 
+# Phase 10: Foreign keys and defaults
+uv run examples/phase10_foreign_keys_defaults.py
+
 # Complete example: Blog database with full features
 uv run examples/complete_example.py
 ```
@@ -398,8 +447,10 @@ uv run examples/complete_example.py
 All examples use in-memory databases and demonstrate:
 - Database connection and setup
 - Raw SQL execution
-- Table creation with rich types (str, Text, dict/JSON)
+- Table creation with rich types (str, Text, dict/JSON, ForeignKey)
 - Full CRUD operations (insert, update, upsert, delete, select, lookup)
+- Foreign key relationships via `ForeignKey[T, "table"]` type annotation
+- Default values from class definitions (SQL DEFAULT)
 - Dataclass support for type-safe operations
 - Table reflection and dynamic access (db.t.tablename)
 - Composite primary keys
@@ -427,7 +478,7 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
     TUTORIALS (learning-oriented)  EXPLANATION (understanding-oriented)
            │                              │
     • examples/                    • how-it-works.md
-      - phase1-8 examples          • migrating_from_fastlite.md
+      - phase1-10 examples         • migrating_from_fastlite.md
       - complete_example.py        • implemented.md
            │                              │
     ───────┼──────────────────────────────┼───────
@@ -448,12 +499,12 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 - **[docs/migrating_from_fastlite.md](docs/migrating_from_fastlite.md)** - Migration guide from fastlite
 - **[docs/how-it-works.md](docs/how-it-works.md)** - Technical guide explaining SQLAlchemy internals
 - **[docs/types_reference.md](docs/types_reference.md)** - Complete type system reference
-- **[docs/implementation_plan.md](docs/implementation_plan.md)** - 8-phase development roadmap
+- **[docs/implementation_plan.md](docs/implementation_plan.md)** - 10-phase development roadmap
 - **[examples/](examples/)** - Runnable code examples
 
 ## Contributing
 
-This project is in early development. The implementation follows an 8-phase plan documented in `docs/implementation_plan.md`.
+This project is production-ready. The implementation follows a 10-phase plan documented in `docs/implementation_plan.md`.
 
 ## License
 
