@@ -27,8 +27,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 ## Project Status
 
-✅ **Phases 1-12 Complete** - Production-ready with indexes
-📋 **Phase 13 Planned** - Command-Line Interface (CLI)
+✅ **Phases 1-13 Complete** - Production-ready with CLI
 📋 **Phase 14 Planned** - Migrations
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
@@ -43,8 +42,8 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 10 Complete** - Foreign Keys & Defaults
 ✅ **Phase 11 Complete** - FK Navigation
 ✅ **Phase 12 Complete** - Indexes
-📋 **Phase 13 Planned** - CLI (Click-based, migration-ready)
-📋 **Phase 14 Planned** - Migrations (Alembic + fastmigrate-style API)
+✅ **Phase 13 Complete** - CLI (Click-based, migration-ready)
+📋 **Phase 14 Planned** - Migrations (simple runner, fastmigrate-style API)
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
@@ -66,8 +65,9 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Transaction support (`db.transaction()`, atomic multi-operation commits)
 - ✅ FK navigation (`table.fk.column()`, `get_parent()`, `get_children()`)
 - ✅ Indexes support (`Index` class, `indexes` parameter, `create_index()`, `drop_index()`)
+- ✅ Command-Line Interface (`deebase init/table/index/view/codegen/migrate`)
 - ✅ Complete documentation (API reference, migration guide, examples)
-- ✅ 280 passing tests
+- ✅ 337 passing tests
 
 **Phase 8 Deliverables:**
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`
@@ -115,21 +115,26 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - Unique index constraint enforcement
 - 30 new tests (280 total passing tests)
 
-**Phase 13 (Planned): CLI**
-- Click-based two-stage CLI (`deebase <command> <subcommand>`)
-- Project initialization (`deebase init`, `--package`, `--new-package`, `--postgres`)
-- Table creation with `field:type:modifier` syntax
-- Index and view management commands
-- Code generation from database
-- Migration file preparation (sealed/unsealed workflow)
-- Integration with existing Python packages
+**Phase 13 Deliverables:**
+- Click-based CLI with `deebase` command
+- Project initialization: `deebase init` (with `--package`, `--new-package`, `--postgres`)
+- Table management: `deebase table create/list/schema/drop`
+- Field:type:modifier syntax parsing for table creation
+- Index management: `deebase index create/list/drop`
+- View management: `deebase view create/reflect/list/drop`
+- Code generation: `deebase codegen`
+- Database operations: `deebase db info`, `deebase sql`
+- Migration prep: `deebase migrate seal/status/new`
+- Project structure with `.deebase/`, `migrations/`, `models/`, `data/`
+- State management (config.toml, state.json, .env)
+- 57 new tests (337 total passing tests)
 
 **Phase 14 (Planned): Migrations**
-- Alembic under the hood with fastmigrate-style API
-- Python migration files using DeeBase API
-- `deebase migrate up/down/status/seal` commands
-- Version tracking in database
-- Async migration support
+- Simple custom runner (no Alembic) following fastmigrate patterns
+- Python migration files using DeeBase async API
+- `deebase migrate up/down` commands (Phase 13 already has seal/status/new)
+- Version tracking in `_deebase_migrations` table
+- ~100-150 lines of migration runner code
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
@@ -392,6 +397,40 @@ for idx in articles.indexes:
 
 # Drop an index
 await articles.drop_index("ix_article_created_at")
+
+# CLI (Phase 13)
+# The CLI provides terminal commands for database management:
+
+# Initialize a project
+$ deebase init
+
+# Create table with field:type:modifier syntax
+$ deebase table create users id:int name:str email:str:unique --pk id
+
+# Create table with foreign key
+$ deebase table create posts id:int author_id:int:fk=users title:str --pk id --index author_id
+
+# List tables
+$ deebase table list
+
+# Show table schema
+$ deebase table schema users
+
+# Create view
+$ deebase view create active_users --sql "SELECT * FROM users WHERE status = 'active'"
+
+# Create index
+$ deebase index create users email --unique
+
+# Execute SQL
+$ deebase sql "SELECT COUNT(*) FROM users"
+
+# Generate models from database
+$ deebase codegen
+
+# Migration management
+$ deebase migrate status
+$ deebase migrate seal "initial schema"
 ```
 
 ## Architecture
@@ -405,7 +444,20 @@ src/deebase/
 ├── view.py               # View support (read-only tables)
 ├── types.py              # Python → SQLAlchemy type mapping
 ├── dataclass_utils.py    # Dataclass generation and handling
-└── exceptions.py         # Custom exceptions (NotFoundError, etc.)
+├── exceptions.py         # Custom exceptions (NotFoundError, etc.)
+└── cli/                  # Command-line interface (Phase 13)
+    ├── __init__.py       # Click group and main()
+    ├── init_cmd.py       # deebase init
+    ├── db_cmd.py         # deebase db/sql commands
+    ├── table_cmd.py      # deebase table commands
+    ├── index_cmd.py      # deebase index commands
+    ├── view_cmd.py       # deebase view commands
+    ├── codegen_cmd.py    # deebase codegen
+    ├── migrate_cmd.py    # deebase migrate commands
+    ├── parser.py         # field:type syntax parser
+    ├── generator.py      # Python code generator
+    ├── state.py          # Config and migration state
+    └── utils.py          # CLI utilities
 ```
 
 ## Implementation Approach
@@ -567,7 +619,13 @@ uv run examples/phase11_fk_navigation.py
 # Phase 12: Indexes
 uv run examples/phase12_indexes.py
 
-# Complete example: Blog database with full features
+# Phase 13: CLI (demonstrates what CLI does under the hood)
+uv run examples/phase13_cli.py
+
+# Complete CLI example: Building a blog using actual CLI commands
+uv run examples/complete_cli_example.py
+
+# Complete example: Blog database with full features (Python API)
 uv run examples/complete_example.py
 ```
 
@@ -623,7 +681,8 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 
 **Full Documentation:**
 - **[docs/api_reference.md](docs/api_reference.md)** - Complete API documentation with "When to Use" guidance
-- **[docs/best-practices.md](docs/best-practices.md)** - Design decisions and patterns (dict vs dataclass, reflection, consistency)
+- **[docs/cli_reference.md](docs/cli_reference.md)** - CLI commands reference with "When to Use" guidance
+- **[docs/best-practices.md](docs/best-practices.md)** - Design decisions and patterns (dict vs dataclass, CLI vs API, reflection)
 - **[docs/implemented.md](docs/implemented.md)** - User guide showing what works at each phase
 - **[docs/migrating_from_fastlite.md](docs/migrating_from_fastlite.md)** - Migration guide from fastlite
 - **[docs/how-it-works.md](docs/how-it-works.md)** - Technical guide explaining SQLAlchemy internals

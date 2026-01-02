@@ -356,15 +356,12 @@ class Database:
             >>> await db.reflect()
             >>> users = db.t.users  # Now works (cache hit)
         """
-        # Create a new metadata for reflection (separate from create() metadata)
-        reflect_metadata = sa.MetaData(schema=schema)
-
-        # Reflect all tables from database
+        # Reflect into self._metadata so FK references work when creating new tables
         async with self._engine.connect() as conn:
-            await conn.run_sync(reflect_metadata.reflect)
+            await conn.run_sync(self._metadata.reflect)
 
         # Wrap each reflected table and cache it
-        for table_name, sa_table in reflect_metadata.tables.items():
+        for table_name, sa_table in self._metadata.tables.items():
             # Skip if already cached (e.g., from db.create())
             if table_name not in self._tables:
                 # Extract FK metadata from SQLAlchemy reflection

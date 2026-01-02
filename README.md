@@ -4,7 +4,7 @@
 
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![SQLAlchemy 2.0+](https://img.shields.io/badge/sqlalchemy-2.0+-green.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/tests-280%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-337%20passing-brightgreen.svg)](#)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#)
 
 DeeBase provides a simple, intuitive interface for async database operations in Python. Built on SQLAlchemy, it combines the ergonomics of [fastlite](https://fastlite.answer.ai/) with full async/await support and multi-database compatibility.
@@ -25,6 +25,7 @@ DeeBase provides a simple, intuitive interface for async database operations in 
 - **🎨 Error Handling** - 6 specific exception types with rich context
 - **📤 Code Generation** - Export schemas as Python dataclasses
 - **📊 Indexes** - Query optimization with named and unique indexes
+- **🖥️ CLI** - Command-line interface for project management
 
 ## Quick Start
 
@@ -392,6 +393,45 @@ create_mod_from_tables(
 # from models import User, Post, Comment
 ```
 
+## Command-Line Interface
+
+DeeBase includes a CLI for project management:
+
+```bash
+# Initialize a new project
+deebase init
+
+# Create table with field:type syntax
+deebase table create users id:int name:str email:str:unique --pk id
+
+# Create table with foreign key
+deebase table create posts id:int author_id:int:fk=users title:str --pk id --index author_id
+
+# List tables
+deebase table list
+
+# Show table schema
+deebase table schema users
+
+# Create view
+deebase view create active_users --sql "SELECT * FROM users WHERE status = 'active'"
+
+# Create index
+deebase index create users email --unique
+
+# Execute SQL (recorded in migration)
+deebase sql "SELECT COUNT(*) FROM users"
+
+# Generate model code from database
+deebase codegen
+
+# Migration management
+deebase migrate status
+deebase migrate seal "initial schema"
+```
+
+See `deebase --help` for all commands.
+
 ## Examples
 
 Runnable examples are available in the [`examples/`](examples/) folder:
@@ -408,6 +448,7 @@ Runnable examples are available in the [`examples/`](examples/) folder:
 - **[phase10_foreign_keys_defaults.py](examples/phase10_foreign_keys_defaults.py)** - Foreign keys & defaults
 - **[phase11_fk_navigation.py](examples/phase11_fk_navigation.py)** - FK relationship navigation
 - **[phase12_indexes.py](examples/phase12_indexes.py)** - Query optimization with indexes
+- **[phase13_cli.py](examples/phase13_cli.py)** - CLI (demonstrates what CLI does under the hood)
 - **[complete_example.py](examples/complete_example.py)** - Full-featured blog showcasing all capabilities
 
 Run any example:
@@ -552,7 +593,7 @@ uv run pytest --cov=src/deebase --cov-report=html
 uv run pytest tests/test_crud.py -v
 ```
 
-All 280 tests passing ✅
+All 337 tests passing ✅
 
 ### Project Structure
 
@@ -566,8 +607,17 @@ deebase/
 │   ├── column.py             # Column access
 │   ├── types.py              # Type mapping
 │   ├── dataclass_utils.py    # Dataclass utilities
-│   └── exceptions.py         # Exception classes
-├── tests/                     # 280 passing tests
+│   ├── exceptions.py         # Exception classes
+│   └── cli/                  # Command-line interface
+│       ├── __init__.py       # Click group and main()
+│       ├── init_cmd.py       # deebase init
+│       ├── table_cmd.py      # deebase table commands
+│       ├── index_cmd.py      # deebase index commands
+│       ├── view_cmd.py       # deebase view commands
+│       ├── codegen_cmd.py    # deebase codegen
+│       ├── migrate_cmd.py    # deebase migrate commands
+│       └── parser.py         # Field:type parser
+├── tests/                     # 337 passing tests
 ├── examples/                  # Runnable examples
 ├── docs/                      # Documentation
 └── README.md                  # This file
@@ -579,6 +629,8 @@ deebase/
 - sqlalchemy 2.0.45+
 - aiosqlite 0.22.0+
 - greenlet 3.3.0+ (for SQLAlchemy async)
+- click 8.0+ (for CLI)
+- toml 0.10+ (for CLI configuration)
 
 ## Design Philosophy
 
@@ -592,7 +644,7 @@ DeeBase follows these principles:
 
 ## Status
 
-**All 12 development phases complete! Ready for production use.**
+**All 13 development phases complete! Ready for production use.**
 
 - ✅ Phase 1: Core Infrastructure
 - ✅ Phase 2: Table Creation & Schema
@@ -606,12 +658,14 @@ DeeBase follows these principles:
 - ✅ Phase 10: Foreign Keys & Defaults
 - ✅ Phase 11: FK Navigation
 - ✅ Phase 12: Indexes
+- ✅ Phase 13: Command-Line Interface
+- 📋 Phase 14: Migrations (Planned)
 
 See [Implementation Plan](docs/implementation_plan.md) for details.
 
 ## Contributing
 
-This project follows a 12-phase development plan (now complete). See [docs/implementation_plan.md](docs/implementation_plan.md) for the roadmap.
+This project follows a 14-phase development plan. See [docs/implementation_plan.md](docs/implementation_plan.md) for the roadmap.
 
 ## License
 

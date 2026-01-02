@@ -40,8 +40,17 @@ uv run examples/phase11_fk_navigation.py
 # Run Phase 12 example (indexes)
 uv run examples/phase12_indexes.py
 
+# Run Phase 13 example (CLI)
+uv run examples/phase13_cli.py
+
+# Run views for JOINs and CTEs example
+uv run examples/views_joins_ctes.py
+
 # Run complete example (combined features)
 uv run examples/complete_example.py
+
+# Run complete CLI example (uses actual CLI commands)
+uv run examples/complete_cli_example.py
 ```
 
 ## Examples
@@ -196,6 +205,56 @@ Demonstrates Phase 8 production polish features:
 - Safe update patterns with validation
 - Safe lookup patterns returning None on error
 
+### phase9_transactions.py
+
+Demonstrates Phase 9 transaction features:
+- Multi-operation atomic transactions
+- Automatic commit on success
+- Automatic rollback on exception
+- Money transfer patterns
+- Batch insertion with transactions
+- Transaction context manager usage
+
+**Topics covered:**
+- `async with db.transaction()` - Transaction context manager
+- Atomic commits (all-or-nothing)
+- Automatic rollback on exceptions
+- Batch operations with transactions
+- Backward compatibility (operations without transactions auto-commit)
+
+### phase10_foreign_keys_defaults.py
+
+Demonstrates Phase 10 foreign key and default value features:
+- `ForeignKey[T, "table"]` type annotation for FK relationships
+- `ForeignKey[T, "table.column"]` for explicit column references
+- Automatic extraction of scalar defaults from class definitions
+- `if_not_exists` parameter for safe table creation
+- `replace` parameter to drop and recreate tables
+- FK constraint enforcement
+
+**Topics covered:**
+- `ForeignKey[int, "user"]` - FK type annotation
+- `status: str = "active"` - SQL DEFAULT from Python defaults
+- `if_not_exists=True` - CREATE TABLE IF NOT EXISTS
+- `replace=True` - Drop and recreate table
+- FK constraint violations and IntegrityError
+
+### phase11_fk_navigation.py
+
+Demonstrates Phase 11 FK navigation features:
+- Convenience API for FK navigation
+- Power user API for explicit FK traversal
+- Reverse lookups (get children via FK)
+- Safe navigation (returns None for null/dangling FKs)
+- FK metadata inspection
+
+**Topics covered:**
+- `table.fk.column_name(record)` - Convenience FK navigation
+- `table.get_parent(record, fk_column)` - Power user API
+- `table.get_children(record, child_table, fk_column)` - Reverse lookup
+- `table.foreign_keys` - FK metadata
+- Safe null/dangling reference handling
+
 ### phase12_indexes.py
 
 Demonstrates Phase 12 index features:
@@ -216,9 +275,44 @@ Demonstrates Phase 12 index features:
 - `table.drop_index(name)` - Remove an index
 - `table.indexes` - List index metadata
 
+### phase13_cli.py
+
+Demonstrates Phase 13 CLI features (Python equivalent):
+- What CLI commands do under the hood
+- Table creation via Python (equivalent to `deebase table create`)
+- View creation (equivalent to `deebase view create`)
+- Index management (equivalent to `deebase index create`)
+- Code generation concepts (equivalent to `deebase codegen`)
+
+**Topics covered:**
+- CLI command structure and usage
+- `deebase init` - Project initialization
+- `deebase table create/list/schema/drop` - Table management
+- `deebase index create/list/drop` - Index management
+- `deebase view create/list/drop` - View management
+- `deebase codegen` - Model generation
+- `deebase migrate status/seal/new` - Migration workflow
+- `deebase db info/shell` and `deebase sql` - Database operations
+
+### views_joins_ctes.py
+
+Demonstrates using views for JOINs and CTEs:
+- Creating views that encapsulate JOIN queries
+- Views for aggregations and statistics
+- CTE (Common Table Expression) patterns
+- Reusing complex queries as views
+- Performance benefits of views
+
+**Topics covered:**
+- Views as reusable JOIN queries
+- Aggregation views (counts, sums, averages)
+- Complex multi-join views
+- CTE-style recursive patterns
+- View-based reporting queries
+
 ### complete_example.py
 
-A realistic workflow combining all phases (1-12):
+A realistic workflow combining all phases (1-13) using Python API:
 - Defines a blog database schema
 - Creates tables with indexes and FK constraints
 - Populates data with CRUD operations
@@ -232,6 +326,30 @@ A realistic workflow combining all phases (1-12):
 - Demonstrates practical usage patterns
 
 **Use case:** Building a complete blog system with authors and posts.
+
+### complete_cli_example.py
+
+A realistic workflow using actual CLI commands (runs deebase CLI in subprocess):
+- Initializes a DeeBase project in a temp directory
+- Creates tables with `deebase table create`
+- Sets up foreign keys and indexes via CLI
+- Creates views with `deebase view create`
+- Inserts data with `deebase sql`
+- Generates Python models with `deebase codegen`
+- Demonstrates migration workflow (seal, status)
+- Shows database info and schema inspection
+
+**Use case:** End-to-end CLI workflow for building a blog system.
+
+**Topics covered:**
+- `deebase init` - Project initialization
+- `deebase table create/list/schema` - Table management
+- `deebase index create/list` - Index management
+- `deebase view create/list` - View management
+- `deebase sql` - Raw SQL execution
+- `deebase db info` - Database information
+- `deebase codegen` - Model generation
+- `deebase migrate status/seal` - Migration workflow
 
 ## Key Patterns
 

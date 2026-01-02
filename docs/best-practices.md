@@ -15,6 +15,7 @@ This guide helps you make informed decisions when using DeeBase, explaining the 
 - [Error Handling Strategy](#error-handling-strategy)
 - [Performance Considerations](#performance-considerations)
 - [Schema Evolution](#schema-evolution)
+- [CLI vs Python API: Choosing Your Interface](#cli-vs-python-api-choosing-your-interface)
 
 ---
 
@@ -1524,6 +1525,165 @@ async def init_db_after_migrations():
 
 ---
 
+## CLI vs Python API: Choosing Your Interface
+
+DeeBase provides two complementary interfaces: a command-line interface (CLI) for project setup and schema management, and a Python API for application code. Understanding when to use each is essential for an efficient workflow.
+
+### When to Use the CLI
+
+**Use the CLI for:**
+
+| Task | Why CLI is Better |
+|------|-------------------|
+| **Project initialization** | `deebase init` creates proper structure, config files |
+| **Schema prototyping** | Quickly iterate on table designs without writing code |
+| **Database inspection** | Check schemas, list tables/views, see database info |
+| **Migration management** | Seal migrations, check status, prepare for deployment |
+| **Code generation** | Generate Python models from existing database |
+| **Ad-hoc queries** | Quick SQL queries during development |
+| **Team onboarding** | New developers can explore schema via CLI |
+
+```bash
+# CLI workflow: Set up project and schema
+deebase init
+deebase table create users id:int name:str email:str:unique --pk id
+deebase table create posts id:int author_id:int:fk=users title:str --pk id
+deebase index create posts author_id
+deebase codegen
+deebase migrate seal "initial schema"
+```
+
+### When to Use the Python API
+
+**Use the Python API for:**
+
+| Task | Why Python API is Better |
+|------|--------------------------|
+| **Application code** | Type-safe, async integration with your app |
+| **Business logic** | Validation, computed fields, complex operations |
+| **Transactions** | Multi-operation atomicity with `db.transaction()` |
+| **FK navigation** | `table.fk.column(record)` for relationship traversal |
+| **Type safety** | IDE autocomplete, mypy/pyright checking |
+| **Testing** | Unit tests, integration tests with fixtures |
+| **Bulk operations** | Large inserts, batch updates, streaming |
+
+```python
+# Python API: Application code
+from deebase import Database
+
+db = Database("sqlite+aiosqlite:///app.db")
+await db.reflect()
+
+users = db.t.users
+UserDC = users.dataclass()
+
+# Type-safe operations with transactions
+async with db.transaction():
+    user = await users.insert(UserDC(name="Alice", email="alice@example.com"))
+    await posts.insert({"author_id": user.id, "title": "First Post"})
+```
+
+### Best Practice: CLI for Setup, Python API for Runtime
+
+The recommended workflow uses both:
+
+1. **CLI during development** - Create/modify schema, generate models
+2. **CLI for migrations** - Seal changes, prepare for deployment
+3. **Python API in application** - All runtime database operations
+
+```bash
+# Development phase (CLI)
+deebase init
+deebase table create users id:int name:str email:str:unique --pk id
+deebase codegen  # Generate models.py
+```
+
+```python
+# Application code (Python API)
+from deebase import Database
+from models import Users
+
+db = Database(os.environ["DATABASE_URL"])
+await db.reflect()
+users = db.t.users
+```
+
+### CLI Field Syntax Quick Reference
+
+```bash
+# Field format: name:type:modifier1:modifier2...
+
+# Types
+id:int              # INTEGER
+name:str            # VARCHAR
+content:Text        # TEXT (unlimited)
+price:float         # REAL/FLOAT
+active:bool         # BOOLEAN
+data:bytes          # BLOB
+metadata:dict       # JSON
+created_at:datetime # TIMESTAMP
+
+# Modifiers
+email:str:unique           # UNIQUE constraint
+bio:Text:nullable          # Allow NULL
+status:str:default=active  # DEFAULT 'active'
+author_id:int:fk=users     # FOREIGN KEY to users.id
+
+# Combine multiple modifiers
+email:str:unique:nullable  # Unique but nullable
+```
+
+### Migration Workflow Best Practices
+
+1. **Develop with unsealed migrations** - CLI commands append to current migration
+2. **Seal before deployment** - `deebase migrate seal "description"` freezes changes
+3. **Never modify sealed migrations** - Create new ones instead
+4. **Use descriptive names** - `"add user preferences"` not `"update"`
+
+```bash
+# Development: iterate freely
+deebase table create preferences id:int user_id:int:fk=users theme:str --pk id
+deebase index create preferences user_id
+
+# Ready to deploy: seal it
+deebase migrate seal "add user preferences"
+
+# Continue development with new migration
+deebase table create notifications id:int user_id:int:fk=users message:Text --pk id
+```
+
+### Code Generation Best Practices
+
+1. **Generate after schema changes** - Keep models in sync
+2. **Don't manually edit generated files** - Regenerating overwrites changes
+3. **Use custom output path** - `--output src/myapp/db/models.py`
+
+```bash
+# After schema changes
+deebase codegen
+
+# For specific tables only
+deebase codegen users posts
+
+# Custom location
+deebase codegen --output src/myapp/models/db.py
+```
+
+If you need to add custom methods or logic to models, create a separate file that imports from the generated models:
+
+```python
+# src/myapp/models/custom.py
+from .db import Users, Posts  # Generated models
+
+class UserWithMethods(Users):
+    """Extended User with custom methods."""
+
+    def full_name(self) -> str:
+        return f"{self.first_name} {self.last_name}"
+```
+
+---
+
 ## Summary: Quick Decision Guide
 
 | Scenario | Recommendation |
@@ -1542,6 +1702,11 @@ async def init_db_after_migrations():
 | **Optional records** | Catch `NotFoundError` |
 | **Schema errors** | Usually let fail (programming error) |
 | **Multiple tables** | Initialize all at once, configure consistently |
+| **Project setup** | Use CLI (`deebase init`) |
+| **Schema prototyping** | Use CLI (`deebase table create`) |
+| **Application code** | Use Python API |
+| **Migration management** | Use CLI (`deebase migrate seal`) |
+| **Code generation** | Use CLI (`deebase codegen`) |
 
 ---
 

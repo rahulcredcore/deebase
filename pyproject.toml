@@ -10,9 +10,14 @@ requires-python = ">=3.14"
 dependencies = [
     "aiosqlite>=0.22.0",
     "asyncpg>=0.31.0",
+    "click>=8.3.1",
     "greenlet>=3.3.0",
     "sqlalchemy>=2.0.45",
+    "toml>=0.10.2",
 ]
+
+[project.scripts]
+deebase = "deebase.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.9.8,<0.10.0"]

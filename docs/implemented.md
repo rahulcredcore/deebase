@@ -3112,6 +3112,323 @@ asyncio.run(main())
 
 ---
 
+## Phase 13: Command-Line Interface (CLI) ✅ COMPLETE
+
+Phase 13 adds a comprehensive command-line interface for managing DeeBase projects, enabling schema changes, code generation, and migrations directly from the terminal.
+
+### Installation
+
+The CLI is included with DeeBase. After installing the package, use it with:
+
+```bash
+# Via uv
+uv run deebase <command>
+
+# Or if installed globally
+deebase <command>
+```
+
+### Project Initialization
+
+```bash
+# Initialize a standalone DeeBase project
+$ deebase init
+✓ Created deebase.yaml
+✓ Created migrations/
+✓ Created models/
+✓ Created .env (add DATABASE_URL)
+DeeBase project initialized!
+
+# Initialize with an existing package
+$ deebase init --package myapp
+# Creates deebase.yaml pointing to myapp/
+
+# Create a new package during init
+$ deebase init --new-package myapp
+# Creates myapp/ directory with __init__.py
+
+# Initialize for PostgreSQL
+$ deebase init --postgres
+# Uses asyncpg instead of aiosqlite
+```
+
+### Table Management
+
+```bash
+# Create a table with field definitions
+$ deebase table create users \
+    id:int \
+    name:str \
+    email:str:unique \
+    bio:Text:nullable \
+    status:str:default=active \
+    --pk id
+Table 'users' created successfully.
+Recorded in migration: 001_initial.py
+
+# Field format: name:type:modifier1:modifier2...
+# Types: int, str, Text, float, bool, bytes, dict, datetime, date, time
+# Modifiers: unique, nullable, default=value, fk=table
+
+# Create table with foreign key and index
+$ deebase table create posts \
+    id:int \
+    author_id:int:fk=users \
+    title:str \
+    content:Text \
+    views:int:default=0 \
+    --pk id \
+    --index author_id
+Table 'posts' created successfully.
+
+# List all tables
+$ deebase table list
+Tables:
+  users
+  posts
+
+# Show table schema
+$ deebase table schema users
+CREATE TABLE users (
+  id INTEGER NOT NULL,
+  name VARCHAR NOT NULL,
+  email VARCHAR NOT NULL,
+  bio TEXT,
+  status VARCHAR DEFAULT 'active',
+  PRIMARY KEY (id)
+)
+
+# Drop a table (requires confirmation)
+$ deebase table drop old_table --yes
+Table 'old_table' dropped successfully.
+```
+
+### Index Management
+
+```bash
+# Create a simple index
+$ deebase index create posts title
+Created index: ix_posts_title
+
+# Create a composite index
+$ deebase index create posts author_id,created_at
+Created index: ix_posts_author_id_created_at
+
+# Create a unique index with custom name
+$ deebase index create users email --unique --name ix_users_email
+Created unique index: ix_users_email
+
+# List indexes on a table
+$ deebase index list posts
+Indexes on 'posts':
+  ix_posts_author_id: author_id
+  ix_posts_title: title
+
+# Drop an index
+$ deebase index drop ix_old_index --yes
+Index 'ix_old_index' dropped.
+```
+
+### View Management
+
+```bash
+# Create a view from SQL
+$ deebase view create active_users --sql "SELECT * FROM users WHERE status = 'active'"
+View 'active_users' created successfully.
+
+# Create a view with joins
+$ deebase view create posts_with_authors \
+    --sql "SELECT p.id, p.title, u.name as author FROM posts p JOIN users u ON p.author_id = u.id"
+View 'posts_with_authors' created successfully.
+
+# Replace an existing view
+$ deebase view create active_users \
+    --sql "SELECT * FROM users WHERE active = 1" \
+    --replace
+View 'active_users' replaced successfully.
+
+# List all views
+$ deebase view list
+Views:
+  active_users
+  posts_with_authors
+
+# Drop a view
+$ deebase view drop old_view --yes
+View 'old_view' dropped.
+```
+
+### Database Operations
+
+```bash
+# Show database info
+$ deebase db info
+Database: SQLite
+Location: /path/to/project/app.db
+Tables: users, posts, comments
+Views: active_users, posts_with_authors
+Size: 128.5 KB
+
+# Execute raw SQL (recorded in migration)
+$ deebase sql "CREATE INDEX ix_custom ON users(name)"
+Query executed successfully.
+
+# Execute raw SQL (not recorded in migration)
+$ deebase sql "SELECT COUNT(*) FROM users" --no-record
+┌───────────┐
+│ COUNT(*)  │
+├───────────┤
+│ 42        │
+└───────────┘
+
+# Interactive SQL shell (coming soon)
+$ deebase db shell
+```
+
+### Code Generation
+
+```bash
+# Generate Python models from all tables
+$ deebase codegen
+Generating models to: models/models.py
+Models generated successfully!
+
+# Generate models for specific tables
+$ deebase codegen users posts
+Generating models to: models/models.py
+Models generated successfully!
+
+# Custom output path
+$ deebase codegen --output src/myapp/db/models.py
+Generating models to: src/myapp/db/models.py
+Models generated successfully!
+```
+
+**Generated models.py:**
+```python
+"""Auto-generated database models from DeeBase."""
+
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class Users:
+    id: Optional[int] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    bio: Optional[str] = None
+    status: Optional[str] = None
+
+
+@dataclass
+class Posts:
+    id: Optional[int] = None
+    author_id: Optional[int] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    views: Optional[int] = None
+```
+
+### Migration Management
+
+DeeBase uses a sealed/unsealed migration workflow:
+
+```bash
+# Check migration status
+$ deebase migrate status
+Migration Status:
+  Current: 001_initial.py (unsealed - can be modified)
+  Pending operations: 3
+
+# Seal current migration (freeze it, start new one)
+$ deebase migrate seal "initial blog schema"
+Sealed migration: 001_initial_blog_schema.py
+Created new migration: 002_*.py
+
+# Create new empty migration
+$ deebase migrate new "add comments table"
+Created migration: 003_add_comments_table.py
+```
+
+**Migration workflow:**
+1. CLI commands (table create, index create, etc.) append to the current unsealed migration
+2. When ready to deploy, `migrate seal "description"` freezes the current migration
+3. A new unsealed migration is created for future changes
+4. Sealed migrations are never modified
+
+### Configuration (deebase.yaml)
+
+```yaml
+# Database configuration
+database:
+  type: sqlite              # sqlite or postgres
+  name: app.db              # Database name/file
+
+# Output paths
+models_output: models/models.py
+migrations_dir: migrations
+
+# Optional package integration
+# package: myapp            # Existing package to integrate with
+```
+
+### Environment Variables
+
+```bash
+# .env file
+DATABASE_URL=sqlite+aiosqlite:///app.db
+
+# Or for PostgreSQL
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost/mydb
+```
+
+### Complete CLI Workflow Example
+
+```bash
+# 1. Initialize project
+$ deebase init
+DeeBase project initialized!
+
+# 2. Create tables
+$ deebase table create users id:int name:str email:str:unique --pk id
+$ deebase table create posts id:int author_id:int:fk=users title:str content:Text --pk id
+
+# 3. Create indexes
+$ deebase index create posts title --name ix_posts_title
+
+# 4. Create views
+$ deebase view create active_users --sql "SELECT * FROM users WHERE status = 'active'"
+
+# 5. Insert sample data
+$ deebase sql "INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')" --no-record
+
+# 6. Generate models
+$ deebase codegen
+
+# 7. Seal migration for deployment
+$ deebase migrate seal "initial schema"
+
+# 8. Continue development with new migration
+$ deebase table create comments id:int post_id:int:fk=posts content:Text --pk id
+```
+
+### Testing
+
+- **57 new Phase 13 tests** - All passing ✅
+- **337 total tests** (Phases 1-13) - All passing ✅
+- Coverage:
+  - Project initialization (standalone, package, PostgreSQL)
+  - Table creation with all field types and modifiers
+  - Index creation (simple, composite, unique)
+  - View creation and management
+  - Code generation from tables
+  - Migration file management
+  - Configuration loading
+  - Environment variable handling
+
+---
+
 ## Dependencies
 
 - Python 3.14+
@@ -3134,7 +3451,7 @@ The codebase is designed to be database-agnostic through SQLAlchemy's dialect sy
 
 ## Summary
 
-**All 12 Phases Complete! 🎉**
+**All 13 Phases Complete! 🎉**
 
 DeeBase is now feature-complete with:
 - ✅ **Async/await support** - Modern Python async for FastAPI and other frameworks
@@ -3149,9 +3466,10 @@ DeeBase is now feature-complete with:
 - ✅ **Views support** - Read-only database views
 - ✅ **Transactions** - Atomic multi-operation commits with automatic rollback
 - ✅ **Indexes** - Explicit indexes for query optimization with `Index` class
+- ✅ **Command-line interface** - Full CLI for project management, schema changes, and migrations
 - ✅ **Comprehensive error handling** - 6 specific exception types with rich context
 - ✅ **Code generation** - Export database schemas as Python dataclasses
-- ✅ **Complete documentation** - API reference, migration guide, examples
-- ✅ **280 passing tests** - Comprehensive test coverage
+- ✅ **Complete documentation** - API reference, migration guide, CLI reference, examples
+- ✅ **337 passing tests** - Comprehensive test coverage
 
 **Ready for production use!**
