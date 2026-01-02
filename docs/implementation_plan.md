@@ -1533,9 +1533,9 @@ cli = [
 
 ---
 
-### Phase 14: Migrations (Planned)
+### Phase 14: Migrations (Complete)
 
-**Status:** Planned
+**Status:** ✅ Complete
 
 **Goal:** Complete the migration system with `up`/`down` execution. Phase 13 already implemented the sealed/unsealed workflow and file generation. This phase adds the runtime to actually execute migrations.
 

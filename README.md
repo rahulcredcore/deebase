@@ -4,7 +4,7 @@
 
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![SQLAlchemy 2.0+](https://img.shields.io/badge/sqlalchemy-2.0+-green.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/tests-337%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-375%20passing-brightgreen.svg)](#)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#)
 
 DeeBase provides a simple, intuitive interface for async database operations in Python. Built on SQLAlchemy, it combines the ergonomics of [fastlite](https://fastlite.answer.ai/) with full async/await support and multi-database compatibility.
@@ -26,6 +26,7 @@ DeeBase provides a simple, intuitive interface for async database operations in 
 - **📤 Code Generation** - Export schemas as Python dataclasses
 - **📊 Indexes** - Query optimization with named and unique indexes
 - **🖥️ CLI** - Command-line interface for project management
+- **🔄 Migrations** - Database schema migrations with up/down support
 
 ## Quick Start
 
@@ -428,6 +429,14 @@ deebase codegen
 # Migration management
 deebase migrate status
 deebase migrate seal "initial schema"
+deebase migrate up              # Apply all pending migrations
+deebase migrate up --to 3       # Apply up to version 3
+deebase migrate down -y         # Rollback last migration
+deebase migrate down --to 1 -y  # Rollback to version 1
+
+# Database backup
+deebase db backup               # Create timestamped backup
+deebase db backup --output ./backups/
 ```
 
 See `deebase --help` for all commands.
@@ -449,7 +458,9 @@ Runnable examples are available in the [`examples/`](examples/) folder:
 - **[phase11_fk_navigation.py](examples/phase11_fk_navigation.py)** - FK relationship navigation
 - **[phase12_indexes.py](examples/phase12_indexes.py)** - Query optimization with indexes
 - **[phase13_cli.py](examples/phase13_cli.py)** - CLI (demonstrates what CLI does under the hood)
+- **[phase14_migrations.py](examples/phase14_migrations.py)** - Database migrations with MigrationRunner
 - **[complete_example.py](examples/complete_example.py)** - Full-featured blog showcasing all capabilities
+- **[complete_migrations_example.py](examples/complete_migrations_example.py)** - Full migration workflow with CLI
 
 Run any example:
 ```bash
@@ -593,7 +604,7 @@ uv run pytest --cov=src/deebase --cov-report=html
 uv run pytest tests/test_crud.py -v
 ```
 
-All 337 tests passing ✅
+All 375 tests passing ✅
 
 ### Project Structure
 
@@ -616,8 +627,10 @@ deebase/
 │       ├── view_cmd.py       # deebase view commands
 │       ├── codegen_cmd.py    # deebase codegen
 │       ├── migrate_cmd.py    # deebase migrate commands
+│       ├── migration_runner.py # MigrationRunner class
+│       ├── backup.py         # Database backup functions
 │       └── parser.py         # Field:type parser
-├── tests/                     # 337 passing tests
+├── tests/                     # 375 passing tests
 ├── examples/                  # Runnable examples
 ├── docs/                      # Documentation
 └── README.md                  # This file
@@ -644,7 +657,7 @@ DeeBase follows these principles:
 
 ## Status
 
-**All 13 development phases complete! Ready for production use.**
+**All 14 development phases complete! Ready for production use.**
 
 - ✅ Phase 1: Core Infrastructure
 - ✅ Phase 2: Table Creation & Schema
@@ -659,7 +672,7 @@ DeeBase follows these principles:
 - ✅ Phase 11: FK Navigation
 - ✅ Phase 12: Indexes
 - ✅ Phase 13: Command-Line Interface
-- 📋 Phase 14: Migrations (Planned)
+- ✅ Phase 14: Migrations
 
 See [Implementation Plan](docs/implementation_plan.md) for details.
 

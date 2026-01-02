@@ -366,6 +366,38 @@ async with db.transaction():
 - No code changes needed - operations detect active transaction
 - Backward compatible - existing code works without transactions
 
+#### `async db.enable_foreign_keys() -> None`
+
+Enable foreign key enforcement on SQLite databases.
+
+**When to use:**
+- After creating a SQLite database connection that uses foreign keys
+- At the start of your application initialization
+- Safe to call on any database (no-op on PostgreSQL)
+
+**Why it exists:**
+SQLite has foreign key enforcement disabled by default for backward compatibility.
+PostgreSQL always enforces foreign keys. This method provides a portable way to
+ensure FK constraints are enforced.
+
+**Example:**
+```python
+db = Database("sqlite+aiosqlite:///app.db")
+await db.enable_foreign_keys()
+
+# Now foreign key constraints are enforced
+await db.q("CREATE TABLE users (id INTEGER PRIMARY KEY)")
+await db.q("CREATE TABLE posts (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id))")
+
+# This will fail with IntegrityError (FK violation)
+await db.q("INSERT INTO posts (user_id) VALUES (999)")
+```
+
+**Notes:**
+- Must be called after connection, before FK operations
+- Safe to call multiple times
+- No effect on PostgreSQL (always enforces FKs)
+
 #### `async db.close() -> None`
 
 Close the database connection and dispose of the engine.

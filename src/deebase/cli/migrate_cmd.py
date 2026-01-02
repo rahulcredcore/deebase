@@ -1,6 +1,10 @@
 """Migration commands for DeeBase CLI.
 
 Commands:
+    deebase migrate up                  - Apply pending migrations
+    deebase migrate up --to N           - Apply migrations up to version N
+    deebase migrate down                - Rollback last migration
+    deebase migrate down --to N         - Rollback to version N
     deebase migrate seal "description"  - Seal current migration and create new
     deebase migrate status              - Show migration status
 """
@@ -17,16 +21,163 @@ from .state import (
     save_state,
     MigrationState,
 )
+from .utils import run_async
 
 
 @click.group()
 def migrate():
     """Migration management commands.
 
-    Note: Full migration support (up/down) is coming in Phase 14.
-    This provides the sealing/status workflow for Phase 13.
+    Apply, rollback, and manage database migrations.
+
+    Examples:
+
+        # Apply all pending migrations
+        deebase migrate up
+
+        # Apply up to version 3
+        deebase migrate up --to 3
+
+        # Rollback last migration
+        deebase migrate down
+
+        # Rollback to version 1
+        deebase migrate down --to 1
+
+        # Show migration status
+        deebase migrate status
+
+        # Seal current migration and start new one
+        deebase migrate seal "add user preferences"
     """
     pass
+
+
+@migrate.command("up")
+@click.option("--to", "to_version", type=int, help="Target version (e.g., 3 for 0003)")
+def up(to_version: int):
+    """Apply pending migrations.
+
+    Applies all pending migrations in order, or up to the specified
+    version if --to is provided.
+
+    Examples:
+
+        # Apply all pending migrations
+        deebase migrate up
+
+        # Apply migrations up to version 3
+        deebase migrate up --to 3
+    """
+    project_root = find_project_root()
+
+    if project_root is None:
+        click.echo("Error: No DeeBase project found. Run 'deebase init' first.")
+        sys.exit(1)
+
+    run_async(_migrate_up(project_root, to_version))
+
+
+async def _migrate_up(project_root: Path, to_version: int = None):
+    """Apply pending migrations."""
+    from deebase import Database
+    from .migration_runner import MigrationRunner
+
+    # Load configuration
+    load_env(project_root)
+    config = load_config(project_root)
+    migrations_dir = project_root / config.migrations_directory
+
+    if not migrations_dir.exists():
+        click.echo(f"Error: Migrations directory not found: {migrations_dir}")
+        sys.exit(1)
+
+    # Connect to database
+    url = config.get_database_url()
+    db = Database(url)
+
+    try:
+        runner = MigrationRunner(db, migrations_dir)
+        await runner.up(to_version=to_version)
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        sys.exit(1)
+    finally:
+        await db.close()
+
+
+@migrate.command("down")
+@click.option(
+    "--to", "to_version", type=int, default=None, help="Target version to rollback to"
+)
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+def down(to_version: int, yes: bool):
+    """Rollback migrations.
+
+    Rolls back the last applied migration, or down to the specified
+    version if --to is provided.
+
+    Examples:
+
+        # Rollback last migration
+        deebase migrate down
+
+        # Rollback to version 1 (keeping only version 1 applied)
+        deebase migrate down --to 1
+
+        # Rollback all migrations
+        deebase migrate down --to 0
+
+        # Skip confirmation
+        deebase migrate down -y
+    """
+    project_root = find_project_root()
+
+    if project_root is None:
+        click.echo("Error: No DeeBase project found. Run 'deebase init' first.")
+        sys.exit(1)
+
+    # Confirm rollback
+    if not yes:
+        if to_version is not None:
+            msg = f"Rollback migrations to version {to_version}?"
+        else:
+            msg = "Rollback last migration?"
+
+        if not click.confirm(msg):
+            click.echo("Cancelled.")
+            return
+
+    run_async(_migrate_down(project_root, to_version))
+
+
+async def _migrate_down(project_root: Path, to_version: int = None):
+    """Rollback migrations."""
+    from deebase import Database
+    from .migration_runner import MigrationRunner
+
+    # Load configuration
+    load_env(project_root)
+    config = load_config(project_root)
+    migrations_dir = project_root / config.migrations_directory
+
+    if not migrations_dir.exists():
+        click.echo(f"Error: Migrations directory not found: {migrations_dir}")
+        sys.exit(1)
+
+    # Connect to database
+    url = config.get_database_url()
+    db = Database(url)
+
+    try:
+        runner = MigrationRunner(db, migrations_dir)
+        # Pass to_version as-is: None means "rollback last one", 0 means "rollback all"
+        await runner.down(to_version=to_version)
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        sys.exit(1)
+    finally:
+        await db.close()
 
 
 @migrate.command('seal')

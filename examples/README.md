@@ -43,6 +43,9 @@ uv run examples/phase12_indexes.py
 # Run Phase 13 example (CLI)
 uv run examples/phase13_cli.py
 
+# Run Phase 14 example (migrations)
+uv run examples/phase14_migrations.py
+
 # Run views for JOINs and CTEs example
 uv run examples/views_joins_ctes.py
 
@@ -294,6 +297,29 @@ Demonstrates Phase 13 CLI features (Python equivalent):
 - `deebase migrate status/seal/new` - Migration workflow
 - `deebase db info/shell` and `deebase sql` - Database operations
 
+### phase14_migrations.py
+
+Demonstrates Phase 14 migration features:
+- `db.enable_foreign_keys()` - Portable FK enforcement
+- Migration file format (NNNN-description.py)
+- `MigrationRunner` class for executing migrations
+- Applying migrations with `up()`
+- Rolling back migrations with `down()`
+- Migration status checking
+- Version tracking in `_deebase_migrations` table
+- Database backup with `create_backup_sqlite()`
+
+**Topics covered:**
+- `db.enable_foreign_keys()` - Enable FK constraints on SQLite
+- `MigrationRunner(db, migrations_dir)` - Initialize runner
+- `runner.up()` - Apply all pending migrations
+- `runner.up(to_version=N)` - Apply up to version N
+- `runner.down()` - Rollback last migration
+- `runner.down(to_version=N)` - Rollback to version N
+- `runner.status()` - Get migration status dict
+- `create_backup_sqlite(db_path)` - Create timestamped backup
+- CLI equivalents: `deebase migrate up/down`, `deebase db backup`
+
 ### views_joins_ctes.py
 
 Demonstrates using views for JOINs and CTEs:
@@ -312,7 +338,7 @@ Demonstrates using views for JOINs and CTEs:
 
 ### complete_example.py
 
-A realistic workflow combining all phases (1-13) using Python API:
+A realistic workflow combining all phases (1-14) using Python API:
 - Defines a blog database schema
 - Creates tables with indexes and FK constraints
 - Populates data with CRUD operations

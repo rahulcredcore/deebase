@@ -610,6 +610,30 @@ class Database:
             async with self._session() as session:
                 await session.execute(sa.schema.CreateIndex(sa_index))
 
+    async def enable_foreign_keys(self) -> None:
+        """Enable foreign key enforcement (SQLite only, no-op on PostgreSQL).
+
+        SQLite has FK enforcement disabled by default. PostgreSQL always enforces FKs.
+        Call this after creating a Database connection if using SQLite with FKs.
+
+        This method is safe to call on any database - it's a no-op on databases
+        that always enforce FKs (like PostgreSQL).
+
+        Example:
+            >>> db = Database("sqlite+aiosqlite:///app.db")
+            >>> await db.enable_foreign_keys()
+            >>> # Now FK constraints are enforced on SQLite
+
+            >>> # Or use immediately after connection
+            >>> async with Database("sqlite+aiosqlite:///app.db") as db:
+            ...     await db.enable_foreign_keys()
+            ...     # FK enforcement is now active
+        """
+        dialect_name = self._engine.dialect.name
+        if dialect_name == "sqlite":
+            await self.q("PRAGMA foreign_keys = ON")
+        # PostgreSQL and other databases always enforce FKs, no action needed
+
     async def close(self) -> None:
         """Close the database connection and dispose of the engine."""
         await self._engine.dispose()

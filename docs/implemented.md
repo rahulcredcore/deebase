@@ -3429,6 +3429,195 @@ $ deebase table create comments id:int post_id:int:fk=posts content:Text --pk id
 
 ---
 
+## Phase 14: Migrations ✅ COMPLETE
+
+Phase 14 adds a complete migration system for managing database schema changes.
+
+### Features
+
+- **MigrationRunner class** - Apply and rollback migrations programmatically
+- **CLI commands** - `deebase migrate up/down` for applying and rolling back
+- **Database backups** - `deebase db backup` for timestamped backups
+- **enable_foreign_keys()** - Portable FK enforcement helper
+
+### Migration File Format
+
+Migration files use the pattern `NNNN-description.py`:
+
+```python
+# migrations/0001-create-users.py
+"""Migration: Create users table"""
+
+from deebase import Database
+
+async def upgrade(db: Database):
+    """Apply this migration."""
+    await db.q("""
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE
+        )
+    """)
+
+async def downgrade(db: Database):
+    """Reverse this migration."""
+    await db.q("DROP TABLE users")
+```
+
+### Applying Migrations
+
+**Via CLI:**
+
+```bash
+# Apply all pending migrations
+deebase migrate up
+
+# Apply up to version 3
+deebase migrate up --to 3
+
+# Rollback last migration
+deebase migrate down
+
+# Rollback to version 1
+deebase migrate down --to 1 -y
+```
+
+**Via Python API:**
+
+```python
+from deebase import Database
+from deebase.cli.migration_runner import MigrationRunner
+from pathlib import Path
+
+db = Database("sqlite+aiosqlite:///app.db")
+runner = MigrationRunner(db, Path("migrations"))
+
+# Apply all pending migrations
+applied = await runner.up()
+print(f"Applied {len(applied)} migrations")
+
+# Check status
+status = await runner.status()
+print(f"Current version: {status['current_version']}")
+print(f"Applied: {status['applied']}")
+print(f"Pending: {len(status['pending'])}")
+
+# Rollback last migration
+await runner.down()
+
+# Rollback to version 1
+await runner.down(to_version=1)
+```
+
+### Database Backups
+
+**Via CLI:**
+
+```bash
+# Create backup in default location
+deebase db backup
+
+# Create backup in specific directory
+deebase db backup --output /path/to/backups/
+```
+
+**Via Python API:**
+
+```python
+from pathlib import Path
+from deebase.cli.backup import create_backup_sqlite, create_backup_postgres
+
+# SQLite backup (uses native backup API)
+backup_path = create_backup_sqlite(Path("data/app.db"))
+print(f"Backup created: {backup_path}")
+
+# PostgreSQL backup (uses pg_dump)
+backup_path = create_backup_postgres("postgresql://user:pass@localhost/db")
+```
+
+### Foreign Key Enforcement
+
+SQLite has FK enforcement disabled by default. Use `enable_foreign_keys()`:
+
+```python
+db = Database("sqlite+aiosqlite:///app.db")
+await db.enable_foreign_keys()  # No-op on PostgreSQL
+
+# Now FK constraints are enforced
+class Post:
+    id: int
+    author_id: ForeignKey[int, "users"]
+    title: str
+
+posts = await db.create(Post, pk='id')
+await posts.insert({"author_id": 999, "title": "Test"})  # Fails! No user 999
+```
+
+### Version Tracking
+
+Applied migrations are tracked in `_deebase_migrations` table:
+
+```python
+# Query version table directly
+result = await db.q("SELECT * FROM _deebase_migrations")
+# [{'version': 1, 'name': 'create-users', 'applied_at': '2024-01-15 14:30:22'}, ...]
+```
+
+### Example Usage
+
+```python
+import asyncio
+from pathlib import Path
+from deebase import Database
+from deebase.cli.migration_runner import MigrationRunner
+
+async def main():
+    # Connect to database
+    db = Database("sqlite+aiosqlite:///blog.db")
+    await db.enable_foreign_keys()
+
+    # Initialize runner
+    runner = MigrationRunner(db, Path("migrations"))
+
+    # Check current status
+    status = await runner.status()
+    print(f"Current version: {status['current_version']}")
+    print(f"Pending migrations: {len(status['pending'])}")
+
+    # Apply all pending migrations
+    if status['pending']:
+        applied = await runner.up()
+        for m in applied:
+            print(f"Applied: {m.version:04d}-{m.name}")
+
+    # Reflect tables to use them
+    await db.reflect()
+
+    # Use tables normally
+    users = db.t.users
+    await users.insert({"name": "Alice", "email": "alice@example.com"})
+
+    await db.close()
+
+asyncio.run(main())
+```
+
+### Testing
+
+- **38 new Phase 14 tests** - All passing ✅
+- **375 total tests** (Phases 1-14) - All passing ✅
+- Coverage:
+  - MigrationRunner (up, down, status)
+  - Version table management
+  - Migration discovery and loading
+  - SQLite backup functionality
+  - PostgreSQL backup functionality (mocked)
+  - enable_foreign_keys() method
+  - CLI commands (migrate up/down)
+
+---
+
 ## Dependencies
 
 - Python 3.14+
@@ -3451,7 +3640,7 @@ The codebase is designed to be database-agnostic through SQLAlchemy's dialect sy
 
 ## Summary
 
-**All 13 Phases Complete! 🎉**
+**All 14 Phases Complete! 🎉**
 
 DeeBase is now feature-complete with:
 - ✅ **Async/await support** - Modern Python async for FastAPI and other frameworks
@@ -3467,9 +3656,11 @@ DeeBase is now feature-complete with:
 - ✅ **Transactions** - Atomic multi-operation commits with automatic rollback
 - ✅ **Indexes** - Explicit indexes for query optimization with `Index` class
 - ✅ **Command-line interface** - Full CLI for project management, schema changes, and migrations
+- ✅ **Migration runner** - Apply/rollback migrations with `migrate up/down` and version tracking
+- ✅ **Database backups** - Timestamped backups via `deebase db backup`
 - ✅ **Comprehensive error handling** - 6 specific exception types with rich context
 - ✅ **Code generation** - Export database schemas as Python dataclasses
 - ✅ **Complete documentation** - API reference, migration guide, CLI reference, examples
-- ✅ **337 passing tests** - Comprehensive test coverage
+- ✅ **375 passing tests** - Comprehensive test coverage
 
 **Ready for production use!**

@@ -1508,19 +1508,94 @@ class User:
 users = await db.create(User, pk='id')
 ```
 
-### Migrations
+### Migrations (Phase 14)
 
-**Recommended: Use a migration tool alongside DeeBase**
+**Use DeeBase's built-in migration runner:**
+
+DeeBase includes a simple migration runner that doesn't require external dependencies like Alembic.
+
+**Create migration files** (NNNN-description.py format):
 
 ```python
-# Use alembic, yoyo, or similar for migrations
-# Then reflect the results in DeeBase
+# migrations/0001-create-users.py
+from deebase import Database
 
-async def init_db_after_migrations():
-    db = Database("sqlite+aiosqlite:///myapp.db")
-    # Migrations already ran, just reflect
-    await db.reflect()
-    return db
+async def upgrade(db: Database):
+    await db.q("""
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE
+        )
+    """)
+
+async def downgrade(db: Database):
+    await db.q("DROP TABLE users")
+```
+
+**Apply and rollback via CLI:**
+
+```bash
+# Apply all pending migrations
+deebase migrate up
+
+# Apply up to specific version
+deebase migrate up --to 3
+
+# Rollback last migration
+deebase migrate down
+
+# Rollback to specific version
+deebase migrate down --to 1 -y
+```
+
+**Or use MigrationRunner directly:**
+
+```python
+from deebase import Database
+from deebase.cli.migration_runner import MigrationRunner
+from pathlib import Path
+
+db = Database("sqlite+aiosqlite:///app.db")
+runner = MigrationRunner(db, Path("migrations"))
+
+# Apply all pending
+await runner.up()
+
+# Check status
+status = await runner.status()
+print(f"Current: {status['current_version']}")
+print(f"Pending: {len(status['pending'])}")
+
+# Rollback last
+await runner.down()
+```
+
+### Database Backups
+
+**Always backup before destructive migrations:**
+
+```bash
+# Create timestamped backup via CLI
+deebase db backup
+
+# Or use Python API
+from deebase.cli.backup import create_backup_sqlite
+backup_path = create_backup_sqlite(Path("data/app.db"))
+```
+
+### Foreign Key Enforcement
+
+**Enable FK constraints on SQLite:**
+
+SQLite has FK enforcement disabled by default. Call `enable_foreign_keys()` early:
+
+```python
+db = Database("sqlite+aiosqlite:///app.db")
+await db.enable_foreign_keys()  # No-op on PostgreSQL
+
+# Now FK constraints are enforced
+await db.q("INSERT INTO posts (author_id) VALUES (999)")  # Fails!
 ```
 
 ---

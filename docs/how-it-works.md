@@ -3673,6 +3673,177 @@ This is why `deebase table create posts author_id:int:fk=users ...` works - the 
 
 ---
 
+## 17. Migration Runner (Phase 14)
+
+Phase 14 adds a simple migration runner for applying and rolling back database changes.
+
+### Migration File Format
+
+Migration files follow the pattern `NNNN-description.py`:
+
+```python
+# migrations/0001-create-users.py
+"""Migration: Create users table"""
+
+from deebase import Database
+
+async def upgrade(db: Database):
+    """Apply this migration."""
+    await db.q("""
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL
+        )
+    """)
+
+async def downgrade(db: Database):
+    """Reverse this migration."""
+    await db.q("DROP TABLE users")
+```
+
+### MigrationRunner Class
+
+The `MigrationRunner` discovers, loads, and executes migrations:
+
+```python
+# src/deebase/cli/migration_runner.py
+
+class MigrationRunner:
+    VERSION_TABLE = "_deebase_migrations"
+
+    def __init__(self, db: Database, migrations_dir: Path):
+        self.db = db
+        self.migrations_dir = migrations_dir
+
+    async def up(self, to_version: Optional[int] = None) -> list[Migration]:
+        """Apply pending migrations."""
+        await self._ensure_version_table()
+        current = await self._get_current_version()
+        pending = self._discover_migrations(after=current, up_to=to_version)
+
+        applied = []
+        for migration in pending:
+            migration = self._load_migration(migration)
+            async with self.db.transaction():
+                await migration.module.upgrade(self.db)
+                await self._record_migration(migration.version, migration.name)
+            applied.append(migration)
+        return applied
+```
+
+### Migration Discovery
+
+The runner discovers migrations by pattern matching `NNNN-description.py`:
+
+```python
+def _discover_migrations(self, after: int = 0, up_to: Optional[int] = None) -> list[Migration]:
+    pattern = re.compile(r"^(\d{4})-(.+)\.py$")
+    migrations = []
+
+    for path in sorted(self.migrations_dir.glob("*.py")):
+        if path.name.startswith("_"):
+            continue  # Skip __init__.py
+
+        match = pattern.match(path.name)
+        if match:
+            version = int(match.group(1))
+            name = match.group(2)
+            if version > after and (up_to is None or version <= up_to):
+                migrations.append(Migration(version=version, name=name, path=path))
+
+    return sorted(migrations, key=lambda m: m.version)
+```
+
+### Dynamic Module Loading
+
+Migrations are loaded using `importlib`:
+
+```python
+def _load_migration(self, migration: Migration) -> Migration:
+    spec = importlib.util.spec_from_file_location(
+        f"migration_{migration.version:04d}", migration.path
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return Migration(..., module=module)
+```
+
+### Version Tracking Table
+
+The `_deebase_migrations` table tracks applied versions:
+
+```sql
+CREATE TABLE IF NOT EXISTS _deebase_migrations (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+```
+
+Each applied migration gets recorded:
+
+```python
+async def _record_migration(self, version: int, name: str) -> None:
+    await self.db.q(
+        f"INSERT INTO _deebase_migrations (version, name) "
+        f"VALUES ({version}, '{name}')"
+    )
+```
+
+### Database Backup Functions
+
+SQLite backups use the native backup API:
+
+```python
+# src/deebase/cli/backup.py
+
+def create_backup_sqlite(db_path: Path, output_dir: Path = None) -> Path:
+    import sqlite3
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = output_dir / f"{db_path.stem}.{timestamp}.backup"
+
+    source = sqlite3.connect(db_path)
+    dest = sqlite3.connect(backup_path)
+    source.backup(dest)  # SQLite's native backup API
+    source.close()
+    dest.close()
+
+    return backup_path
+```
+
+PostgreSQL backups use pg_dump:
+
+```python
+def create_backup_postgres(db_url: str, output_dir: Path = None) -> Path:
+    # Convert asyncpg URL format if needed
+    if "+asyncpg" in db_url:
+        db_url = db_url.replace("+asyncpg", "")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = output_dir / f"backup_{timestamp}.sql"
+
+    subprocess.run(["pg_dump", db_url, "-f", str(backup_path)], check=True)
+    return backup_path
+```
+
+### enable_foreign_keys() Helper
+
+SQLite has FK enforcement disabled by default. This helper provides portable FK enabling:
+
+```python
+# src/deebase/database.py
+
+async def enable_foreign_keys(self) -> None:
+    """Enable FK enforcement (SQLite only, no-op on PostgreSQL)."""
+    dialect_name = self._engine.dialect.name
+    if dialect_name == "sqlite":
+        await self.q("PRAGMA foreign_keys = ON")
+    # PostgreSQL always enforces FKs
+```
+
+---
+
 ## Key Takeaways
 
 1. **SQLAlchemy Core, Not ORM**: We use Tables and Columns directly, not ORM models
@@ -3691,6 +3862,9 @@ This is why `deebase table create posts author_id:int:fk=users ...` works - the 
 14. **CLI Generates Python Code**: CLI commands produce Python code that uses the DeeBase API
 15. **Async/Sync Bridge**: Click is sync, DeeBase is async - we bridge with `asyncio.run()`
 16. **Sealed/Unsealed Migrations**: Development changes accumulate in unsealed files, then freeze for deployment
+17. **Migration Runner**: Simple Python-based runner with `up()`/`down()` - no Alembic dependency
+18. **Version Tracking**: `_deebase_migrations` table records applied versions with timestamps
+19. **Portable FK Enforcement**: `db.enable_foreign_keys()` works on SQLite (no-op on PostgreSQL)
 
 ## Further Reading
 

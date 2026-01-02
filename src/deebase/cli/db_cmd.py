@@ -3,11 +3,13 @@
 Commands:
     deebase db info     - Show database information
     deebase db shell    - Interactive SQL shell
+    deebase db backup   - Create timestamped database backup
     deebase sql "..."   - Execute raw SQL (recorded in migration)
 """
 
 import click
 import sys
+from pathlib import Path
 
 from .utils import run_async
 from .state import find_project_root, load_config, load_env, load_state, append_to_migration
@@ -142,6 +144,76 @@ def shell():
                 click.echo("Query executed successfully.")
         except Exception as e:
             click.echo(f"Error: {e}")
+
+
+@db.command()
+@click.option(
+    "--output", "-o", type=click.Path(), help="Output directory for backup file"
+)
+def backup(output: str):
+    """Create a timestamped database backup.
+
+    Creates a backup of the database with a timestamp in the filename.
+
+    For SQLite: Uses SQLite's native backup API to create a .backup file.
+    For PostgreSQL: Uses pg_dump to create a SQL dump file.
+
+    Examples:
+
+        # Create backup in default location
+        deebase db backup
+
+        # Create backup in specific directory
+        deebase db backup --output /path/to/backups/
+
+    Note:
+        PostgreSQL backups require pg_dump to be installed.
+        Install PostgreSQL client tools:
+        - macOS: brew install postgresql
+        - Ubuntu/Debian: apt install postgresql-client
+        - Windows: Install PostgreSQL and add bin/ to PATH
+    """
+    project_root = find_project_root()
+
+    if project_root is None:
+        click.echo("Error: No DeeBase project found. Run 'deebase init' first.")
+        sys.exit(1)
+
+    # Load configuration
+    load_env(project_root)
+    config = load_config(project_root)
+
+    output_dir = Path(output) if output else None
+
+    try:
+        if config.database_type == "sqlite":
+            from .backup import create_backup_sqlite
+
+            db_path = project_root / config.sqlite_path
+            if not db_path.exists():
+                click.echo(f"Error: Database file not found: {db_path}")
+                sys.exit(1)
+
+            backup_path = create_backup_sqlite(db_path, output_dir)
+            click.echo(f"Backup created: {backup_path}")
+
+        elif config.database_type == "postgres":
+            from .backup import create_backup_postgres
+
+            db_url = config.get_database_url()
+            backup_path = create_backup_postgres(db_url, output_dir)
+            click.echo(f"Backup created: {backup_path}")
+
+        else:
+            click.echo(f"Error: Unknown database type: {config.database_type}")
+            sys.exit(1)
+
+    except RuntimeError as e:
+        click.echo(f"Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error creating backup: {e}")
+        sys.exit(1)
 
 
 async def _execute_query(config, query: str):

@@ -27,8 +27,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 ## Project Status
 
-✅ **Phases 1-13 Complete** - Production-ready with CLI
-📋 **Phase 14 Planned** - Migrations
+✅ **All 14 Phases Complete** - Production-ready with full migration support
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
@@ -43,7 +42,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 11 Complete** - FK Navigation
 ✅ **Phase 12 Complete** - Indexes
 ✅ **Phase 13 Complete** - CLI (Click-based, migration-ready)
-📋 **Phase 14 Planned** - Migrations (simple runner, fastmigrate-style API)
+✅ **Phase 14 Complete** - Migrations (simple runner, fastmigrate-style API)
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
@@ -66,8 +65,9 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ FK navigation (`table.fk.column()`, `get_parent()`, `get_children()`)
 - ✅ Indexes support (`Index` class, `indexes` parameter, `create_index()`, `drop_index()`)
 - ✅ Command-Line Interface (`deebase init/table/index/view/codegen/migrate`)
+- ✅ Migrations (`MigrationRunner`, `migrate up/down`, `db backup`)
 - ✅ Complete documentation (API reference, migration guide, examples)
-- ✅ 337 passing tests
+- ✅ 375 passing tests
 
 **Phase 8 Deliverables:**
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`
@@ -129,22 +129,23 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - State management (config.toml, state.json, .env)
 - 57 new tests (337 total passing tests)
 
-**Phase 14 (Planned): Migrations**
-- Simple custom runner (no Alembic) following fastmigrate patterns
-- Python migration files using DeeBase async API (`NNNN-description.py` format)
-- `deebase migrate up/down` commands (Phase 13 already has seal/status/new)
-- `deebase db backup` for database backups (SQLite native, PostgreSQL via pg_dump)
-- Version tracking in `_deebase_migrations` table (multi-row with timestamps)
-- Rollback support via `downgrade()` functions (unlike fastmigrate)
+**Phase 14 Deliverables:**
+- `MigrationRunner` class with `up()`, `down()`, `status()` methods
+- Migration file format: `NNNN-description.py` with `upgrade(db)` and `downgrade(db)` functions
+- `deebase migrate up [--to N]` - Apply pending migrations
+- `deebase migrate down [--to N] [-y]` - Rollback migrations
+- `deebase db backup [--output DIR]` - Create timestamped database backups
+- SQLite backup via native backup API, PostgreSQL backup via pg_dump
+- Version tracking in `_deebase_migrations` table with timestamps
 - `db.enable_foreign_keys()` helper for cross-database FK enforcement
-- ~30 new tests, ~100-150 lines of migration runner code
+- 38 new tests (375 total passing tests)
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
 
 ## Basic Usage
 
-### Working Now (Phases 1-12)
+### Working Now (Phases 1-14)
 
 ```python
 from deebase import Database, Text, Index, NotFoundError
@@ -434,6 +435,16 @@ $ deebase codegen
 # Migration management
 $ deebase migrate status
 $ deebase migrate seal "initial schema"
+
+# Apply/rollback migrations (Phase 14)
+$ deebase migrate up            # Apply all pending migrations
+$ deebase migrate up --to 3     # Apply up to version 3
+$ deebase migrate down          # Rollback last migration
+$ deebase migrate down --to 1   # Rollback to version 1
+
+# Database backup (Phase 14)
+$ deebase db backup             # Create timestamped backup
+$ deebase db backup -o ./backups/
 ```
 
 ## Architecture
@@ -448,7 +459,7 @@ src/deebase/
 ├── types.py              # Python → SQLAlchemy type mapping
 ├── dataclass_utils.py    # Dataclass generation and handling
 ├── exceptions.py         # Custom exceptions (NotFoundError, etc.)
-└── cli/                  # Command-line interface (Phase 13)
+└── cli/                  # Command-line interface (Phase 13+14)
     ├── __init__.py       # Click group and main()
     ├── init_cmd.py       # deebase init
     ├── db_cmd.py         # deebase db/sql commands
@@ -457,6 +468,8 @@ src/deebase/
     ├── view_cmd.py       # deebase view commands
     ├── codegen_cmd.py    # deebase codegen
     ├── migrate_cmd.py    # deebase migrate commands
+    ├── migration_runner.py  # MigrationRunner class (Phase 14)
+    ├── backup.py         # Database backup functions (Phase 14)
     ├── parser.py         # field:type syntax parser
     ├── generator.py      # Python code generator
     ├── state.py          # Config and migration state
@@ -625,6 +638,9 @@ uv run examples/phase12_indexes.py
 # Phase 13: CLI (demonstrates what CLI does under the hood)
 uv run examples/phase13_cli.py
 
+# Phase 14: Migrations
+uv run examples/phase14_migrations.py
+
 # Complete CLI example: Building a blog using actual CLI commands
 uv run examples/complete_cli_example.py
 
@@ -648,6 +664,8 @@ All examples use in-memory databases and demonstrate:
 - Transaction support for atomic multi-operation commits
 - FK navigation (table.fk.column(), get_parent(), get_children())
 - Views for JOINs and CTEs (recommended pattern for multi-table queries)
+- Migration runner (up/down, version tracking)
+- Database backups (SQLite native, PostgreSQL via pg_dump)
 - Production-ready error handling patterns
 - Schema inspection
 - Practical usage patterns

@@ -481,6 +481,52 @@ Views: active_users, posts_with_authors
 Size: 128.5 KB
 ```
 
+#### db backup
+
+Create a timestamped database backup.
+
+```bash
+deebase db backup [OPTIONS]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--output, -o PATH` | Output directory for backup file |
+
+**Examples:**
+
+```bash
+# Create backup in default location (same directory as database)
+deebase db backup
+
+# Create backup in specific directory
+deebase db backup --output /path/to/backups/
+```
+
+**Output (SQLite):**
+```
+Backup created: data/app.20240115_143022.backup
+```
+
+**Output (PostgreSQL):**
+```
+Backup created: backup_20240115_143022.sql
+```
+
+**When to use:**
+- Before running migrations (especially destructive ones)
+- Before major data changes
+- As part of deployment workflow
+
+**Notes:**
+- **SQLite**: Uses SQLite's native backup API for consistent backups
+- **PostgreSQL**: Requires `pg_dump` to be installed
+  - macOS: `brew install postgresql`
+  - Ubuntu/Debian: `apt install postgresql-client`
+  - Windows: Install PostgreSQL and add `bin/` to PATH
+
 ---
 
 ### sql
@@ -587,6 +633,102 @@ class Posts:
 ### migrate
 
 Migration management commands.
+
+#### migrate up
+
+Apply pending database migrations.
+
+```bash
+deebase migrate up [OPTIONS]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--to VERSION` | Apply migrations up to this version number |
+
+**Examples:**
+
+```bash
+# Apply all pending migrations
+deebase migrate up
+
+# Apply migrations up to version 3 only
+deebase migrate up --to 3
+```
+
+**Output:**
+```
+Applied: 0001-create-users
+Applied: 0002-create-posts
+Applied: 0003-add-comments
+
+Applied 3 migrations.
+```
+
+**When to use:**
+- After pulling new code with migrations
+- During deployment
+- After sealing and creating new migration files
+
+**What it does:**
+1. Checks `_deebase_migrations` table for applied versions
+2. Discovers pending migration files (NNNN-description.py format)
+3. Executes `upgrade()` function in each pending migration
+4. Records applied migrations with timestamps
+
+#### migrate down
+
+Rollback database migrations.
+
+```bash
+deebase migrate down [OPTIONS]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--to VERSION` | Rollback to this version (0 = rollback all) |
+| `--yes, -y` | Skip confirmation prompt |
+
+**Examples:**
+
+```bash
+# Rollback the last applied migration
+deebase migrate down
+
+# Rollback to version 1 (keeping v1 applied, removing v2 and above)
+deebase migrate down --to 1
+
+# Rollback all migrations
+deebase migrate down --to 0
+
+# Skip confirmation
+deebase migrate down -y
+```
+
+**Output:**
+```
+Rollback last migration? [y/N]: y
+Rolled back: 0003-add-comments
+
+Rolled back 1 migration.
+```
+
+**When to use:**
+- During development to revert schema changes
+- Testing migration rollback functionality
+- Recovering from a problematic migration
+
+**What it does:**
+1. Checks current version from `_deebase_migrations` table
+2. Loads migration file(s) to rollback
+3. Executes `downgrade()` function in reverse order
+4. Removes migration records from tracking table
+
+**Warning:** Rollback may cause data loss if tables/columns are dropped.
 
 #### migrate status
 
