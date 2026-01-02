@@ -28,6 +28,8 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ## Project Status
 
 ✅ **Phases 1-12 Complete** - Production-ready with indexes
+📋 **Phase 13 Planned** - Command-Line Interface (CLI)
+📋 **Phase 14 Planned** - Migrations
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
@@ -41,6 +43,8 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 10 Complete** - Foreign Keys & Defaults
 ✅ **Phase 11 Complete** - FK Navigation
 ✅ **Phase 12 Complete** - Indexes
+📋 **Phase 13 Planned** - CLI (Click-based, migration-ready)
+📋 **Phase 14 Planned** - Migrations (Alembic + fastmigrate-style API)
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
@@ -110,6 +114,22 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - `table.indexes` property listing all indexes on a table
 - Unique index constraint enforcement
 - 30 new tests (280 total passing tests)
+
+**Phase 13 (Planned): CLI**
+- Click-based two-stage CLI (`deebase <command> <subcommand>`)
+- Project initialization (`deebase init`, `--package`, `--new-package`, `--postgres`)
+- Table creation with `field:type:modifier` syntax
+- Index and view management commands
+- Code generation from database
+- Migration file preparation (sealed/unsealed workflow)
+- Integration with existing Python packages
+
+**Phase 14 (Planned): Migrations**
+- Alembic under the hood with fastmigrate-style API
+- Python migration files using DeeBase API
+- `deebase migrate up/down/status/seal` commands
+- Version tracking in database
+- Async migration support
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
@@ -503,7 +523,7 @@ src/deebase/
 - ✅ `table.indexes` property
 - ✅ 30 new tests (280 total passing)
 
-See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 12-phase roadmap.
+See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 14-phase roadmap.
 See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
 
 ## Examples
@@ -608,7 +628,7 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 - **[docs/migrating_from_fastlite.md](docs/migrating_from_fastlite.md)** - Migration guide from fastlite
 - **[docs/how-it-works.md](docs/how-it-works.md)** - Technical guide explaining SQLAlchemy internals
 - **[docs/types_reference.md](docs/types_reference.md)** - Complete type system reference
-- **[docs/implementation_plan.md](docs/implementation_plan.md)** - 11-phase development roadmap
+- **[docs/implementation_plan.md](docs/implementation_plan.md)** - 14-phase development roadmap
 - **[examples/](examples/)** - Runnable code examples
 
 ## Development Workflow
@@ -693,7 +713,7 @@ gh release create vX.Y.Z --title "vX.Y.Z - Title" --notes "Changelog here"
 
 ## Contributing
 
-This project is production-ready. The implementation follows a 12-phase plan documented in `docs/implementation_plan.md`.
+This project is production-ready. The implementation follows a 14-phase plan documented in `docs/implementation_plan.md`.
 
 ## License
 

@@ -1143,6 +1143,612 @@ print(articles.indexes)
 
 ---
 
+### Phase 13: Command-Line Interface (CLI)
+
+**Status:** Planned
+
+**Goal:** Provide a Click-based CLI for database management, table creation, code generation, and migration preparation. The CLI produces Python code that gets recorded for future migration replay.
+
+**Design Philosophy:**
+- CLI commands are **input** that generate **Python code**
+- Generated code uses the DeeBase API (`db.create()`, `db.q()`, etc.)
+- Three outputs per command: (1) immediate execution, (2) models file, (3) migration file
+- Architecture is migration-ready even though migrations come in Phase 14
+
+#### Installation
+
+CLI installed via pyproject.toml entry point:
+
+```toml
+[project.scripts]
+deebase = "deebase.cli:main"
+
+[project.optional-dependencies]
+cli = ["click>=8.0", "python-dotenv>=1.0", "toml>=0.10"]
+```
+
+#### Project Structure
+
+```
+project/
+├── .deebase/
+│   ├── config.toml          # Project settings (tracked)
+│   ├── .env                  # Secrets: connection strings (gitignored)
+│   └── state.json            # Current migration state (tracked)
+├── data/
+│   └── app.db               # SQLite files (gitignored)
+├── migrations/
+│   └── 0000-initial.py      # Migration files (tracked)
+├── myapp/                   # User's package (if --package used)
+│   └── models/
+│       └── tables.py        # Generated models (tracked)
+└── models/                  # Standalone mode models
+    └── tables.py
+```
+
+#### Command Structure
+
+**Initialization Commands:**
+
+```bash
+# Initialize standalone project
+deebase init
+# Creates: .deebase/, migrations/, models/, data/
+
+# Initialize with existing Python package
+deebase init --package myapp
+# Creates: .deebase/, migrations/, data/
+# Models go to: myapp/models/tables.py
+
+# Initialize new Python package
+deebase init --new-package myapp
+# Creates: myapp/ package structure + deebase files
+
+# Initialize for PostgreSQL instead of SQLite
+deebase init --postgres
+```
+
+**Database Commands:**
+
+```bash
+# Show database info (connection, tables, views, version)
+deebase db info
+
+# Execute raw SQL (recorded in migration)
+deebase sql "CREATE VIEW active_users AS SELECT * FROM users WHERE active = 1"
+
+# Interactive SQL shell (not recorded)
+deebase db shell
+```
+
+**Table Commands:**
+
+```bash
+# Create table with field:type[:modifier] syntax
+deebase table create users \
+    id:int \
+    name:str \
+    email:str:unique \
+    bio:Text \
+    metadata:dict \
+    status:str:default=active \
+    created_at:datetime \
+    --pk id
+
+# With foreign keys
+deebase table create posts \
+    id:int \
+    author_id:int:fk=users \
+    title:str \
+    content:Text \
+    --pk id \
+    --index author_id
+
+# List all tables
+deebase table list
+
+# Show table schema
+deebase table schema users
+
+# Drop table (with confirmation)
+deebase table drop users
+```
+
+**Field Type Syntax:**
+
+```
+field:type[:modifier[:modifier...]]
+
+Types:
+  int, str, float, bool, bytes
+  Text          - Unlimited text
+  dict          - JSON column
+  datetime, date, time
+
+Modifiers:
+  :unique       - UNIQUE constraint
+  :nullable     - Optional field (NULL allowed)
+  :default=val  - Default value
+  :fk=table     - Foreign key to table.id
+  :fk=table.col - Foreign key to table.column
+```
+
+**Index Commands:**
+
+```bash
+# Create index
+deebase index create posts author_id
+deebase index create posts author_id,created_at --name idx_author_date
+deebase index create users email --unique
+
+# List indexes on table
+deebase index list posts
+
+# Drop index
+deebase index drop idx_author_date
+```
+
+**View Commands:**
+
+```bash
+# Create view from SQL
+deebase view create active_users --sql "SELECT * FROM users WHERE active = 1"
+
+# Reflect existing view (after creating with db sql)
+deebase view reflect active_users
+
+# List views
+deebase view list
+
+# Drop view
+deebase view drop active_users
+```
+
+**Code Generation Commands:**
+
+```bash
+# Regenerate models from database
+deebase codegen                    # All tables
+deebase codegen users posts        # Specific tables
+deebase codegen --output myapp/models/tables.py
+```
+
+**Migration Prep Commands (for Phase 14):**
+
+```bash
+# Seal current migration (freeze it, start new one)
+deebase migrate seal "description"
+
+# Show migration status (current version, unsealed changes)
+deebase migrate status
+```
+
+#### How Commands Generate Code
+
+When user runs:
+```bash
+$ deebase table create users id:int name:str email:str:unique --pk id
+```
+
+**1. Parse and generate Python class:**
+```python
+class User:
+    id: int
+    name: str
+    email: str  # unique constraint handled separately
+```
+
+**2. Execute immediately:**
+```python
+await db.create(User, pk='id', indexes=[Index('ix_user_email', 'email', unique=True)])
+```
+
+**3. Append to models file (`models/tables.py`):**
+```python
+@dataclass
+class User:
+    id: Optional[int] = None
+    name: str = ""
+    email: str = ""  # unique
+```
+
+**4. Append to migration file (`migrations/0000-initial.py`):**
+```python
+# In upgrade() function:
+class User:
+    id: int
+    name: str
+    email: str
+
+await db.create(User, pk='id', indexes=[Index('ix_user_email', 'email', unique=True)])
+```
+
+#### Config Files
+
+**.deebase/config.toml:**
+```toml
+[project]
+name = "myapp"
+version = "0.1.0"
+
+[database]
+type = "sqlite"                    # or "postgres"
+sqlite_path = "data/app.db"
+# postgres from .env: DATABASE_URL
+
+[models]
+output = "models/tables.py"        # or "myapp/models/tables.py"
+module = "models.tables"           # import path
+
+[migrations]
+directory = "migrations"
+auto_seal = false                  # seal after each command?
+```
+
+**.deebase/.env:**
+```bash
+# SQLite (optional, can use config.toml path)
+DATABASE_URL=sqlite+aiosqlite:///data/app.db
+
+# PostgreSQL
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost/dbname
+```
+
+**.deebase/state.json:**
+```json
+{
+  "current_migration": "0000-initial",
+  "sealed": false,
+  "db_version": 0
+}
+```
+
+#### Implementation Details
+
+1. **CLI Module Structure:**
+   ```
+   src/deebase/
+   ├── cli/
+   │   ├── __init__.py      # Click group and main()
+   │   ├── init_cmd.py      # deebase init
+   │   ├── db_cmd.py        # deebase db info/shell/sql
+   │   ├── table_cmd.py     # deebase table create/list/schema/drop
+   │   ├── index_cmd.py     # deebase index create/list/drop
+   │   ├── view_cmd.py      # deebase view create/reflect/list/drop
+   │   ├── codegen_cmd.py   # deebase codegen
+   │   ├── migrate_cmd.py   # deebase migrate seal/status
+   │   ├── parser.py        # field:type parser
+   │   ├── generator.py     # Python code generator
+   │   └── state.py         # Migration state management
+   ```
+
+2. **Async Wrapper:**
+   Click is synchronous, so we wrap async calls:
+   ```python
+   import asyncio
+
+   def run_async(coro):
+       return asyncio.run(coro)
+
+   @click.command()
+   def create_table(...):
+       run_async(_create_table_async(...))
+   ```
+
+3. **Field Parser:**
+   ```python
+   def parse_field(field_spec: str) -> FieldDefinition:
+       """Parse 'name:str:unique:default=foo' into FieldDefinition"""
+       parts = field_spec.split(':')
+       name = parts[0]
+       type_ = parts[1]
+       modifiers = parts[2:]
+       # Returns structured field definition
+   ```
+
+4. **Code Generator:**
+   ```python
+   def generate_class(name: str, fields: list[FieldDefinition]) -> str:
+       """Generate Python class source code"""
+
+   def generate_create_call(name: str, fields: list, pk: str, indexes: list) -> str:
+       """Generate db.create() call"""
+   ```
+
+5. **Migration File Writer:**
+   ```python
+   def append_to_migration(code: str, state: MigrationState):
+       """Append operation to current unsealed migration"""
+   ```
+
+#### Tests (~40 new tests)
+
+**CLI Infrastructure:**
+- Click command registration
+- Async wrapper functionality
+- Config file loading
+- State file management
+
+**Init Command:**
+- `deebase init` creates correct structure
+- `deebase init --package myapp` integrates with existing package
+- `deebase init --postgres` sets correct config
+- Idempotent (safe to run twice)
+
+**Table Commands:**
+- Parse simple field:type syntax
+- Parse all type modifiers (:unique, :nullable, :default, :fk)
+- Generate correct Python class
+- Execute and record in migration
+- List tables from database
+- Show table schema
+- Drop table with migration record
+
+**Index Commands:**
+- Create simple and composite indexes
+- Create unique indexes
+- List indexes on table
+- Drop index with migration record
+
+**View Commands:**
+- Create view from SQL
+- Reflect existing view
+- List views
+- Drop view
+
+**Code Generation:**
+- Generate models from database
+- Correct dataclass formatting
+- Handle all column types
+
+**Migration Prep:**
+- Seal migration creates new file
+- Status shows correct state
+
+**Integration:**
+- Full workflow: init → create tables → indexes → codegen
+- Temp directory isolation for tests
+
+#### Deliverables
+
+- `deebase.cli` package with Click commands
+- Field:type parser
+- Python code generator
+- Migration file writer
+- State management
+- ~40 new tests
+- CLI documentation
+- Example workflows
+
+#### Dependencies (New)
+
+```toml
+[project.optional-dependencies]
+cli = [
+    "click>=8.0",
+    "python-dotenv>=1.0",
+    "toml>=0.10",
+]
+```
+
+---
+
+### Phase 14: Migrations (Planned)
+
+**Status:** Planned (pending Phase 13 completion)
+
+**Goal:** Implement database migrations using Alembic under the hood with a fastmigrate-style API. Migrations are Python files that use the DeeBase API.
+
+**Note:** This phase will be refined after Phase 13 is complete. We'll verify compatibility with fastmigrate patterns and confirm Alembic integration approach.
+
+#### Design Overview
+
+**Migration File Format:**
+```python
+# migrations/0000-initial.py
+"""Initial schema - auto-generated by deebase CLI"""
+from deebase import Database, Text, ForeignKey, Index
+
+class User:
+    id: int
+    name: str
+    email: str
+
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]
+    title: str
+    content: Text
+
+async def upgrade(db: Database):
+    await db.create(User, pk='id', indexes=[
+        Index('ix_user_email', 'email', unique=True)
+    ])
+    await db.create(Post, pk='id', indexes=['author_id'])
+
+async def downgrade(db: Database):
+    await db.t.post.drop()
+    await db.t.user.drop()
+```
+
+**Version Tracking:**
+```sql
+CREATE TABLE _deebase_version (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### Command Structure
+
+```bash
+# Apply all pending migrations
+deebase migrate up
+
+# Apply up to specific version
+deebase migrate up --to 0003
+
+# Rollback last migration
+deebase migrate down
+
+# Rollback to specific version
+deebase migrate down --to 0001
+
+# Show migration status
+deebase migrate status
+
+# Create new empty migration
+deebase migrate new "add comments table"
+
+# Seal current migration (freeze and start new)
+deebase migrate seal "initial schema"
+
+# Generate migration from model changes (auto-detect)
+deebase migrate auto "add user avatar"
+```
+
+#### Sealed vs Unsealed Migrations
+
+```
+migrations/
+├── 0000-initial.py       # SEALED - immutable
+├── 0001-add-posts.py     # SEALED - immutable
+└── 0002-current.py       # UNSEALED - CLI commands append here
+```
+
+**Workflow:**
+1. `deebase table create ...` → appends to unsealed migration
+2. `deebase index create ...` → appends to unsealed migration
+3. `deebase migrate seal "description"` → freezes current, creates new unsealed
+
+#### Alembic Integration
+
+Alembic runs under the hood for:
+- Version tracking
+- Up/down execution ordering
+- Transaction management
+
+**env.py adaptation for async:**
+```python
+from alembic import context
+from sqlalchemy.ext.asyncio import async_engine_from_config
+
+async def run_migrations_online():
+    connectable = async_engine_from_config(...)
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+```
+
+**Migration wrapper:**
+```python
+# Alembic calls sync function, we wrap async DeeBase code
+def upgrade():
+    import asyncio
+    from deebase import Database
+
+    async def _upgrade():
+        db = Database(get_url())
+        # ... DeeBase operations from migration file
+
+    asyncio.run(_upgrade())
+```
+
+#### FastMigrate Compatibility
+
+Following fastmigrate patterns:
+- `NNNN-description.py` naming convention
+- Version tracked in database table
+- Support for Python migration scripts
+- Sequential execution order
+- Rollback support
+
+**Differences from fastmigrate:**
+- Async DeeBase API instead of sync sqlite-utils
+- Alembic for execution engine (more robust)
+- PostgreSQL support in addition to SQLite
+
+#### Implementation Details
+
+1. **Migration Runner:**
+   ```python
+   class MigrationRunner:
+       async def up(self, to_version: int = None):
+           """Apply pending migrations"""
+
+       async def down(self, to_version: int = None):
+           """Rollback migrations"""
+
+       async def status(self) -> MigrationStatus:
+           """Get current migration state"""
+   ```
+
+2. **Version Table Management:**
+   ```python
+   async def ensure_version_table(db: Database):
+       """Create _deebase_version table if not exists"""
+
+   async def get_current_version(db: Database) -> int:
+       """Get current database version"""
+
+   async def record_migration(db: Database, version: int, name: str):
+       """Record successful migration"""
+   ```
+
+3. **Migration Discovery:**
+   ```python
+   def discover_migrations(directory: str) -> list[Migration]:
+       """Find all NNNN-*.py files, parse version and name"""
+   ```
+
+4. **Auto-Generation (Future):**
+   ```python
+   async def diff_models(db: Database, models_file: str) -> list[Operation]:
+       """Compare database schema to models file, generate operations"""
+   ```
+
+#### Tests (~30 new tests)
+
+- Migration file parsing
+- Version tracking
+- Up migration (single, multiple, to specific version)
+- Down migration (single, multiple, to specific version)
+- Migration status reporting
+- Seal/unseal workflow
+- Error handling (failed migration rollback)
+- Concurrent migration protection
+- Empty migration handling
+
+#### Deliverables
+
+- Migration runner using Alembic
+- Version table management
+- CLI commands (up, down, status, new, seal)
+- Migration file generator
+- ~30 new tests
+- Migration documentation
+
+#### Open Questions (To Resolve Before Implementation)
+
+1. **Alembic vs Custom Runner:**
+   - Option A: Full Alembic integration (robust, standard tooling)
+   - Option B: Simple custom runner like fastmigrate (simpler, fits DeeBase better)
+   - Option C: Alembic for execution, custom file format
+
+2. **Auto-Generation:**
+   - Should we support `deebase migrate auto` that diffs models?
+   - This is complex - may defer to later phase
+
+3. **Transaction Handling:**
+   - Each migration in its own transaction?
+   - Rollback partial migration on failure?
+
+4. **PostgreSQL-Specific:**
+   - Schema support?
+   - Concurrent index creation?
+
+---
+
 ## Testing Strategy
 
 Each phase includes tests:
