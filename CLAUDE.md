@@ -131,10 +131,13 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 **Phase 14 (Planned): Migrations**
 - Simple custom runner (no Alembic) following fastmigrate patterns
-- Python migration files using DeeBase async API
+- Python migration files using DeeBase async API (`NNNN-description.py` format)
 - `deebase migrate up/down` commands (Phase 13 already has seal/status/new)
-- Version tracking in `_deebase_migrations` table
-- ~100-150 lines of migration runner code
+- `deebase db backup` for database backups (SQLite native, PostgreSQL via pg_dump)
+- Version tracking in `_deebase_migrations` table (multi-row with timestamps)
+- Rollback support via `downgrade()` functions (unlike fastmigrate)
+- `db.enable_foreign_keys()` helper for cross-database FK enforcement
+- ~30 new tests, ~100-150 lines of migration runner code
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
@@ -712,12 +715,13 @@ Update each documentation file:
 1. `examples/phaseN_*.py` - Create phase example
 2. `examples/complete_example.py` - Add new feature showcase
 3. `docs/api_reference.md` - API documentation
-4. `docs/implemented.md` - Feature guide
-5. `docs/best-practices.md` - Design decisions
-6. `docs/types_reference.md` - If new types added
-7. `docs/how-it-works.md` - SQLAlchemy implementation details
-8. `README.md` - User-facing documentation
-9. `CLAUDE.md` - Developer context
+4. `docs/cli_reference.md` - CLI commands (if CLI changes)
+5. `docs/implemented.md` - Feature guide
+6. `docs/best-practices.md` - Design decisions
+7. `docs/types_reference.md` - If new types added
+8. `docs/how-it-works.md` - SQLAlchemy implementation details
+9. `README.md` - User-facing documentation
+10. `CLAUDE.md` - Developer context
 
 ### 5. Finalize
 - Run all tests and examples one final time
