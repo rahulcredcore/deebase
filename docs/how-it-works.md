@@ -1,10 +1,10 @@
-# How DeeBase Works: SQLAlchemy Under the Hood
+# How DeeBase Works: Technical Internals
 
-This document explains the technical internals of DeeBase and how it leverages SQLAlchemy to provide an ergonomic async database interface.
+This document explains the technical internals of DeeBase for developers who want to understand how the library works under the hood, contribute to the codebase, or extend its functionality.
 
 ## Overview
 
-DeeBase is built on top of **SQLAlchemy Core** (not the ORM) with **async support**. We use SQLAlchemy's:
+DeeBase is built on top of **SQLAlchemy Core** (not the ORM) with **async support**, and includes a **Click-based CLI** for project management. We use SQLAlchemy's:
 - Type system for database-agnostic column types
 - Metadata system for schema registry
 - DDL (Data Definition Language) generation for CREATE/DROP TABLE
@@ -3295,6 +3295,384 @@ CREATE INDEX ix_article_title ON article (title);
 
 ---
 
+## 16. Command-Line Interface (Phase 13)
+
+The CLI provides terminal-based project management, schema creation, and migration preparation. It's built on Click and generates Python code that uses the DeeBase API.
+
+### Architecture
+
+```
+src/deebase/cli/
+├── __init__.py       # Click group, main() entry point
+├── init_cmd.py       # deebase init
+├── db_cmd.py         # deebase db info, deebase sql
+├── table_cmd.py      # deebase table create/list/schema/drop
+├── index_cmd.py      # deebase index create/list/drop
+├── view_cmd.py       # deebase view create/reflect/list/drop
+├── codegen_cmd.py    # deebase codegen
+├── migrate_cmd.py    # deebase migrate seal/status/new
+├── parser.py         # Field:type:modifier parsing
+├── generator.py      # Python code generation
+├── state.py          # Config loading, migration state
+└── utils.py          # Async wrapper, helpers
+```
+
+### Click Command Structure
+
+DeeBase uses Click's command groups for a two-level CLI:
+
+```python
+# src/deebase/cli/__init__.py
+import click
+
+@click.group()
+def cli():
+    """DeeBase database management CLI."""
+    pass
+
+# Register command groups
+cli.add_command(init)      # deebase init
+cli.add_command(table)     # deebase table <subcommand>
+cli.add_command(index)     # deebase index <subcommand>
+cli.add_command(view)      # deebase view <subcommand>
+cli.add_command(db)        # deebase db <subcommand>
+cli.add_command(sql)       # deebase sql "..."
+cli.add_command(codegen)   # deebase codegen
+cli.add_command(migrate)   # deebase migrate <subcommand>
+
+def main():
+    cli()
+```
+
+### Async Wrapper Pattern
+
+Click is synchronous, but DeeBase is async. We bridge this with `run_async()`:
+
+```python
+# src/deebase/cli/utils.py
+import asyncio
+
+def run_async(coro):
+    """Run an async coroutine from synchronous Click command."""
+    return asyncio.run(coro)
+
+# Usage in commands:
+@click.command()
+def create_table(...):
+    run_async(_create_table_async(...))
+
+async def _create_table_async(...):
+    db = Database(url)
+    await db.create(...)
+```
+
+### Field Parser
+
+The CLI parses `field:type:modifier` syntax into structured field definitions:
+
+```python
+# src/deebase/cli/parser.py
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class FieldDefinition:
+    name: str
+    type_name: str           # "int", "str", "Text", etc.
+    nullable: bool = False
+    unique: bool = False
+    default: Optional[str] = None
+    fk_reference: Optional[str] = None  # "users" or "users.id"
+
+def parse_field(field_spec: str) -> FieldDefinition:
+    """Parse 'name:str:unique:default=active' into FieldDefinition."""
+    parts = field_spec.split(':')
+    name = parts[0]
+    type_name = parts[1]
+
+    field = FieldDefinition(name=name, type_name=type_name)
+
+    for modifier in parts[2:]:
+        if modifier == 'unique':
+            field.unique = True
+        elif modifier == 'nullable':
+            field.nullable = True
+        elif modifier.startswith('default='):
+            field.default = modifier.split('=', 1)[1]
+        elif modifier.startswith('fk='):
+            field.fk_reference = modifier.split('=', 1)[1]
+
+    return field
+```
+
+**Example parsing:**
+```
+"email:str:unique"        → FieldDefinition(name='email', type_name='str', unique=True)
+"status:str:default=active" → FieldDefinition(name='status', type_name='str', default='active')
+"author_id:int:fk=users"  → FieldDefinition(name='author_id', type_name='int', fk_reference='users')
+```
+
+### Code Generator
+
+The generator produces Python code from field definitions:
+
+```python
+# src/deebase/cli/generator.py
+
+TYPE_MAP = {
+    'int': 'int',
+    'str': 'str',
+    'Text': 'Text',
+    'float': 'float',
+    'bool': 'bool',
+    'bytes': 'bytes',
+    'dict': 'dict',
+    'datetime': 'datetime',
+    'date': 'date',
+    'time': 'time',
+}
+
+def generate_class_source(name: str, fields: list[FieldDefinition]) -> str:
+    """Generate Python class definition."""
+    lines = [f"class {name.title()}:"]
+
+    for field in fields:
+        type_str = TYPE_MAP[field.type_name]
+
+        # Handle ForeignKey
+        if field.fk_reference:
+            type_str = f'ForeignKey[{type_str}, "{field.fk_reference}"]'
+
+        # Handle Optional
+        if field.nullable:
+            type_str = f'Optional[{type_str}]'
+
+        # Handle default
+        if field.default:
+            if field.type_name == 'str':
+                lines.append(f'    {field.name}: {type_str} = "{field.default}"')
+            else:
+                lines.append(f'    {field.name}: {type_str} = {field.default}')
+        else:
+            lines.append(f'    {field.name}: {type_str}')
+
+    return '\n'.join(lines)
+```
+
+**Example output:**
+```python
+# Input: deebase table create users id:int name:str email:str:unique status:str:default=active
+# Output:
+class Users:
+    id: int
+    name: str
+    email: str
+    status: str = "active"
+```
+
+### Project State Management
+
+The CLI maintains project state in configuration files:
+
+```python
+# src/deebase/cli/state.py
+from dataclasses import dataclass
+from pathlib import Path
+import yaml
+
+@dataclass
+class ProjectConfig:
+    database_type: str = "sqlite"
+    database_name: str = "app.db"
+    models_output: str = "models/models.py"
+    migrations_dir: str = "migrations"
+    package: Optional[str] = None
+
+    def get_database_url(self) -> str:
+        """Build database URL from config or environment."""
+        # Check DATABASE_URL env var first
+        if url := os.environ.get("DATABASE_URL"):
+            return url
+
+        # Build from config
+        if self.database_type == "sqlite":
+            return f"sqlite+aiosqlite:///{self.database_name}"
+        else:
+            raise ValueError("PostgreSQL requires DATABASE_URL")
+
+@dataclass
+class MigrationState:
+    current_migration: str = "001_initial"
+    sealed: bool = False
+
+def find_project_root() -> Optional[Path]:
+    """Find deebase.yaml walking up from current directory."""
+    current = Path.cwd()
+    while current != current.parent:
+        if (current / "deebase.yaml").exists():
+            return current
+        current = current.parent
+    return None
+
+def load_config(project_root: Path) -> ProjectConfig:
+    """Load configuration from deebase.yaml."""
+    config_path = project_root / "deebase.yaml"
+    with open(config_path) as f:
+        data = yaml.safe_load(f)
+    return ProjectConfig(**data.get('database', {}), **data)
+```
+
+### Migration File Generation
+
+CLI commands append to the current unsealed migration:
+
+```python
+# src/deebase/cli/state.py
+
+def append_to_migration(code: str, project_root: Path, state: MigrationState):
+    """Append operation to current unsealed migration file."""
+    if state.sealed:
+        raise ValueError("Current migration is sealed. Run 'deebase migrate new' first.")
+
+    migrations_dir = project_root / "migrations"
+    migration_file = migrations_dir / f"{state.current_migration}.py"
+
+    # Read existing content
+    content = migration_file.read_text() if migration_file.exists() else MIGRATION_TEMPLATE
+
+    # Find the up() function and append code
+    # ... insertion logic ...
+
+    migration_file.write_text(updated_content)
+```
+
+**Migration file structure:**
+```python
+# migrations/001_initial.py
+"""Migration: initial
+
+Created: 2024-01-15 10:30:00
+DeeBase migration file.
+"""
+
+async def up(db):
+    """Apply migration."""
+    class Users:
+        id: int
+        name: str
+        email: str
+
+    await db.create(Users, pk='id')
+
+async def down(db):
+    """Revert migration."""
+    await db.t.users.drop()
+```
+
+### Sealed/Unsealed Workflow
+
+```
+┌─────────────────────────────────────────────────────┐
+│  UNSEALED MIGRATION (001_initial.py)                │
+│  - CLI commands append here                         │
+│  - Can be modified until sealed                     │
+└─────────────────────────────────────────────────────┘
+                    │
+                    ▼  deebase migrate seal "description"
+┌─────────────────────────────────────────────────────┐
+│  SEALED MIGRATION (001_initial_schema.py)           │
+│  - Immutable, ready for deployment                  │
+│  - New 002_*.py created for future changes          │
+└─────────────────────────────────────────────────────┘
+```
+
+**Seal implementation:**
+```python
+# src/deebase/cli/migrate_cmd.py
+
+@migrate.command('seal')
+@click.argument('description')
+def seal(description: str):
+    """Seal current migration and create new one."""
+    project_root = find_project_root()
+    state = load_state(project_root)
+
+    # Rename current migration with description
+    old_name = state.current_migration
+    new_name = f"{old_name}_{slugify(description)}"
+
+    migrations_dir = project_root / state.migrations_dir
+    old_path = migrations_dir / f"{old_name}.py"
+    new_path = migrations_dir / f"{new_name}.py"
+    old_path.rename(new_path)
+
+    # Create new unsealed migration
+    next_num = int(old_name.split('_')[0]) + 1
+    new_migration = f"{next_num:03d}_current"
+    create_empty_migration(migrations_dir / f"{new_migration}.py")
+
+    # Update state
+    state.current_migration = new_migration
+    save_state(state, project_root)
+```
+
+### Table Creation Flow
+
+When you run `deebase table create users id:int name:str email:str:unique --pk id`:
+
+```
+1. CLI parses arguments
+   └─ fields = [FieldDef('id', 'int'), FieldDef('name', 'str'), FieldDef('email', 'str', unique=True)]
+   └─ pk = 'id'
+
+2. Parser validates field syntax
+   └─ parse_field("email:str:unique") → FieldDefinition
+
+3. Generator creates Python class
+   └─ class Users:
+          id: int
+          name: str
+          email: str
+
+4. Async wrapper executes DeeBase API
+   └─ db = Database(url)
+   └─ await db.reflect()  # Load existing tables for FK resolution
+   └─ await db.create(Users, pk='id', indexes=[Index(..., unique=True)])
+
+5. Migration recorder appends to file
+   └─ append_to_migration("await db.create(Users, ...)", ...)
+
+6. CLI outputs success message
+   └─ "Table 'users' created successfully."
+   └─ "Recorded in migration: 001_initial.py"
+```
+
+### Database Reflection for FK Resolution
+
+When creating tables with foreign keys, the CLI must know about existing tables:
+
+```python
+# src/deebase/cli/table_cmd.py
+
+async def _create_table(config, name, fields, pk, indexes):
+    db = Database(config.get_database_url())
+    try:
+        # CRITICAL: Reflect existing tables so FK references resolve
+        await db.reflect()
+
+        # Build class from fields
+        cls = build_class_from_fields(name, fields)
+
+        # Create table - FK references like "users" now resolve
+        await db.create(cls, pk=pk, indexes=indexes)
+    finally:
+        await db.close()
+```
+
+This is why `deebase table create posts author_id:int:fk=users ...` works - the `users` table is reflected before creating `posts`.
+
+---
+
 ## Key Takeaways
 
 1. **SQLAlchemy Core, Not ORM**: We use Tables and Columns directly, not ORM models
@@ -3310,6 +3688,9 @@ CREATE INDEX ix_article_title ON article (title);
 11. **Opt-In Type Safety**: Start with dicts, add dataclasses when needed
 12. **Foreign Keys via Type Annotations**: `ForeignKey[T, "table"]` encodes relationships in Python's type system
 13. **Defaults from Class Definitions**: Scalar class defaults become SQL DEFAULT clauses via `server_default`
+14. **CLI Generates Python Code**: CLI commands produce Python code that uses the DeeBase API
+15. **Async/Sync Bridge**: Click is sync, DeeBase is async - we bridge with `asyncio.run()`
+16. **Sealed/Unsealed Migrations**: Development changes accumulate in unsealed files, then freeze for deployment
 
 ## Further Reading
 

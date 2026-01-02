@@ -685,7 +685,7 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 - **[docs/best-practices.md](docs/best-practices.md)** - Design decisions and patterns (dict vs dataclass, CLI vs API, reflection)
 - **[docs/implemented.md](docs/implemented.md)** - User guide showing what works at each phase
 - **[docs/migrating_from_fastlite.md](docs/migrating_from_fastlite.md)** - Migration guide from fastlite
-- **[docs/how-it-works.md](docs/how-it-works.md)** - Technical guide explaining SQLAlchemy internals
+- **[docs/how-it-works.md](docs/how-it-works.md)** - Technical internals guide for developers (SQLAlchemy, CLI architecture, etc.)
 - **[docs/types_reference.md](docs/types_reference.md)** - Complete type system reference
 - **[docs/implementation_plan.md](docs/implementation_plan.md)** - 14-phase development roadmap
 - **[examples/](examples/)** - Runnable code examples
