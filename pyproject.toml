@@ -1,6 +1,6 @@
 [project]
 name = "deebase"
-version = "0.3.0"
+version = "0.4.0"
 description = "Async SQLAlchemy-based implementation of the fastlite API"
 readme = "README.md"
 authors = [
