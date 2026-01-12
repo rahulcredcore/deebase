@@ -39,9 +39,15 @@ pip install deebase
 
 # Using uv (recommended)
 uv add deebase
+
+# With FastAPI integration (optional)
+pip install deebase[api]
+# or: uv add deebase[api]
 ```
 
 DeeBase will automatically install its dependencies: SQLAlchemy, aiosqlite, asyncpg, and greenlet.
+
+The `[api]` extra installs FastAPI integration dependencies: fastapi, pydantic, fastcore, uvicorn, and jinja2.
 
 ### Basic Example
 
