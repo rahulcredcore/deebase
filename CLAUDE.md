@@ -28,6 +28,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ## Project Status
 
 ✅ **All 14 Phases Complete** - Production-ready with full migration support
+📋 **Phase 15 Planned** - FastAPI Integration (auto-generated CRUD APIs)
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
@@ -43,6 +44,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 12 Complete** - Indexes
 ✅ **Phase 13 Complete** - CLI (Click-based, migration-ready)
 ✅ **Phase 14 Complete** - Migrations (simple runner, fastmigrate-style API)
+📋 **Phase 15 Planned** - FastAPI Integration (CRUD routers, Pydantic models, FK validation)
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
@@ -139,6 +141,17 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - Version tracking in `_deebase_migrations` table with timestamps
 - `db.enable_foreign_keys()` helper for cross-database FK enforcement
 - 38 new tests (375 total passing tests)
+
+**Phase 15 Planned (FastAPI Integration):**
+- `create_crud_router()` - Auto-generate REST CRUD endpoints from `@dataclass` models
+- `CRUDRouter` class with hooks (`before_create`, `after_create`, etc.) for customization
+- Pydantic model generation from dataclass + `fastcore.docments()` for OpenAPI docs
+- FK existence validation before insert/update (better errors than DB constraint failures)
+- Route override mechanism via `overrides` dict, `exclude` set, or subclassing
+- Exception → HTTP mapping (NotFoundError→404, IntegrityError→422, etc.)
+- CLI commands: `deebase api init` (with dependency install), `deebase api serve`, `deebase api generate`
+- Examples: `phase15_fastapi.py`, `complete_blog_api_example.py` (CLI + API + HTML + overrides)
+- ~55 new tests using FastAPI TestClient (no webserver needed)
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.

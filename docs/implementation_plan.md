@@ -1984,6 +1984,484 @@ This section documents SQLite-specific behaviors and how DeeBase handles cross-d
 
 ---
 
+### Phase 15: FastAPI Integration
+
+**Status:** Planned
+
+**Goal:** Add automatic REST API generation from deebase models. Users define `@dataclass` models with inline comments, and deebase generates documented FastAPI CRUD endpoints with Pydantic validation and FK existence checking.
+
+#### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Documentation extraction | `fastcore.docments()` | Parses inline comments from dataclass source |
+| Model requirement | `@dataclass` required | docments needs dataclass source for comment extraction |
+| Validation layer | Pydantic models | Standard FastAPI pattern, automatic OpenAPI docs |
+| FK validation | Application-level check | Validate before insert/update, better error messages than DB constraint failures |
+| Route customization | Override dict + hooks + subclassing | Replace any auto-generated route with custom implementation |
+| CLI integration | `deebase api init/serve/generate` | Scaffolding and development server |
+
+#### Dependencies (New)
+
+```toml
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.100.0",
+    "pydantic>=2.0",
+    "fastcore>=1.5.0",  # For docments()
+    "uvicorn>=0.20.0",  # For deebase api serve
+    "jinja2>=3.0",      # For HTML templates
+]
+```
+
+#### Module Structure
+
+```
+src/deebase/
+├── api/
+│   ├── __init__.py           # Public exports: create_crud_router, CRUDRouter
+│   ├── router.py             # CRUDRouter class and create_crud_router()
+│   ├── models.py             # Pydantic model generation
+│   ├── validators.py         # FK validation, custom validators
+│   ├── exceptions.py         # ForeignKeyValidationError, etc.
+│   └── docs.py               # docments integration
+├── cli/
+│   ├── api_cmd.py            # deebase api init/serve/generate (new)
+│   └── ...
+```
+
+#### Core API
+
+**`create_crud_router()` - Main Entry Point:**
+
+```python
+from deebase.api import create_crud_router
+
+router = create_crud_router(
+    db: Database,                      # DeeBase database instance
+    model_cls: type,                   # @dataclass model class
+    table_name: str = None,            # Override table name (default: cls.__name__.lower())
+    prefix: str = "",                  # URL prefix (e.g., "/api/users")
+    tags: list[str] = None,            # OpenAPI tags
+    pk_field: str = "id",              # Primary key field name
+
+    # Validation options
+    validate_fks: bool = True,         # Check FK references exist before mutations
+    validators: dict = None,           # Custom field validators {field: callable}
+
+    # Route customization
+    exclude: set[str] = None,          # Exclude routes: {"list", "get", "create", "update", "delete"}
+    overrides: dict = None,            # Replace routes: {"create": custom_create_handler}
+
+    # Response options
+    response_model_exclude: set = None, # Fields to exclude from responses
+)
+```
+
+**Usage Example:**
+
+```python
+from dataclasses import dataclass
+from typing import Optional
+from fastapi import FastAPI
+from deebase import Database, ForeignKey, Text
+from deebase.api import create_crud_router
+
+# Step 1: Define models as dataclasses with inline comments
+@dataclass
+class User:
+    id: int                  # Auto-generated user ID
+    name: str                # Display name
+    email: str               # Email address (unique)
+    status: str = "active"   # Account status: active, inactive, banned
+
+@dataclass
+class Post:
+    id: int                            # Auto-generated post ID
+    author_id: ForeignKey[int, "user"] # Post author (must exist in users)
+    title: str                         # Post title, max 200 characters
+    content: Text                      # Full post content in markdown
+    published: bool = False            # Whether post is publicly visible
+    views: int = 0                     # View counter
+
+# Step 2: Create FastAPI app and database
+app = FastAPI(title="Blog API")
+db = Database("sqlite+aiosqlite:///blog.db")
+
+# Step 3: Startup - create tables
+@app.on_event("startup")
+async def startup():
+    await db.create(User, pk='id', if_not_exists=True)
+    await db.create(Post, pk='id', if_not_exists=True)
+    await db.enable_foreign_keys()
+
+# Step 4: Add CRUD routers
+app.include_router(
+    create_crud_router(
+        db=db,
+        model_cls=User,
+        prefix="/api/users",
+        tags=["Users"],
+    )
+)
+
+app.include_router(
+    create_crud_router(
+        db=db,
+        model_cls=Post,
+        prefix="/api/posts",
+        tags=["Posts"],
+        validate_fks=True,  # Validates author_id exists before insert
+        validators={
+            "title": lambda v: v.strip()[:200] if v else v,  # Trim and limit
+        },
+    )
+)
+```
+
+**Generated Endpoints:**
+
+| Method | Path | Request Body | Response | Description |
+|--------|------|--------------|----------|-------------|
+| GET | `/api/posts/` | - | `list[PostResponse]` | List all posts |
+| GET | `/api/posts/{id}` | - | `PostResponse` | Get post by ID |
+| POST | `/api/posts/` | `PostCreate` | `PostResponse` | Create post |
+| PATCH | `/api/posts/{id}` | `PostUpdate` | `PostResponse` | Update post |
+| DELETE | `/api/posts/{id}` | - | 204 No Content | Delete post |
+
+**Generated Pydantic Models:**
+
+```python
+# Auto-generated from Post dataclass:
+
+class PostCreate(BaseModel):
+    """Request model for creating a Post."""
+    author_id: int = Field(..., description="Post author (must exist in users) (FK → user.id)")
+    title: str = Field(..., description="Post title, max 200 characters")
+    content: str = Field(..., description="Full post content in markdown")
+    published: bool = Field(default=False, description="Whether post is publicly visible")
+    views: int = Field(default=0, description="View counter")
+
+class PostUpdate(BaseModel):
+    """Request model for updating a Post."""
+    author_id: Optional[int] = Field(None, description="Post author (FK → user.id)")
+    title: Optional[str] = Field(None, description="Post title, max 200 characters")
+    # ... all fields optional
+
+class PostResponse(BaseModel):
+    """Response model for Post."""
+    id: int = Field(..., description="Auto-generated post ID")
+    author_id: int = Field(..., description="Post author (FK → user.id)")
+    # ... all fields included
+```
+
+#### Route Override Mechanism
+
+**Option 1: Using `overrides` parameter:**
+
+```python
+async def custom_create_post(data: PostCreate, db=Depends(get_db)):
+    # Custom validation
+    if "spam" in data.title.lower():
+        raise HTTPException(400, "Spam detected")
+
+    table = db.t.post
+    result = await table.insert(data.model_dump())
+    await send_notification(f"New post: {result['title']}")
+    return result
+
+app.include_router(
+    create_crud_router(
+        db=db,
+        model_cls=Post,
+        prefix="/api/posts",
+        overrides={"create": custom_create_post},
+    )
+)
+```
+
+**Option 2: Exclude and add manually:**
+
+```python
+router = create_crud_router(
+    db=db,
+    model_cls=Post,
+    prefix="/api/posts",
+    exclude={"create"},  # Don't generate POST endpoint
+)
+
+@router.post("/", response_model=PostResponse)
+async def create_post(data: PostCreate):
+    # Full custom implementation
+    ...
+
+app.include_router(router)
+```
+
+**Option 3: CRUDRouter subclass with hooks:**
+
+```python
+from deebase.api import CRUDRouter
+
+class CustomPostRouter(CRUDRouter):
+    """Customized CRUD router for posts."""
+
+    async def before_create(self, data: dict) -> dict:
+        """Hook called before insert."""
+        data["created_at"] = datetime.now().isoformat()
+        return data
+
+    async def after_create(self, record: dict) -> dict:
+        """Hook called after insert."""
+        await send_notification(f"New post: {record['title']}")
+        return record
+
+router = CustomPostRouter(db, Post, prefix="/api/posts")
+app.include_router(router.router)
+```
+
+#### FK Validation
+
+```python
+# When validate_fks=True (default), before insert/update:
+
+async def validate_foreign_keys(db: Database, table: Table, data: dict) -> None:
+    """Validate all FK references exist."""
+    errors = []
+
+    for fk in table.foreign_keys:
+        # fk = {'column': 'author_id', 'references': 'user.id'}
+        column = fk['column']
+        if column not in data or data[column] is None:
+            continue  # Skip null/missing FKs
+
+        ref_table, ref_col = fk['references'].split('.')
+        fk_value = data[column]
+
+        try:
+            await db.t[ref_table][fk_value]
+        except NotFoundError:
+            errors.append({
+                "field": column,
+                "value": fk_value,
+                "message": f"Referenced {ref_table} with {ref_col}={fk_value} does not exist"
+            })
+
+    if errors:
+        raise ForeignKeyValidationError(errors)
+```
+
+**Error Response:**
+
+```json
+// POST /api/posts/ with {"author_id": 999, "title": "Hello"}
+// Returns 422:
+{
+    "detail": {
+        "type": "foreign_key_validation_error",
+        "errors": [
+            {
+                "field": "author_id",
+                "value": 999,
+                "message": "Referenced user with id=999 does not exist"
+            }
+        ]
+    }
+}
+```
+
+#### Exception → HTTP Mapping
+
+```python
+EXCEPTION_STATUS_MAP = {
+    NotFoundError: 404,
+    IntegrityError: 422,
+    ValidationError: 422,
+    ForeignKeyValidationError: 422,
+    SchemaError: 500,
+    ConnectionError: 503,
+    InvalidOperationError: 400,
+}
+```
+
+#### CLI Commands
+
+**`deebase api init`** - Initialize API with dependency installation:
+
+```bash
+$ deebase api init
+
+Installing API dependencies...
+  ✓ Dependencies installed via uv
+
+Created:
+  api/
+    __init__.py
+    app.py           # FastAPI application
+    routers.py       # Router registration
+    dependencies.py  # Database dependency
+
+Dependencies installed:
+  - fastapi
+  - pydantic
+  - fastcore (for docments)
+  - uvicorn
+  - jinja2 (for HTML templates)
+
+Run with: deebase api serve
+```
+
+**`deebase api serve`** - Start development server:
+
+```bash
+$ deebase api serve
+INFO:     Uvicorn running on http://127.0.0.1:8000
+INFO:     API docs at http://127.0.0.1:8000/docs
+
+$ deebase api serve --host 0.0.0.0 --port 5000 --reload
+```
+
+**`deebase api generate`** - Generate router code:
+
+```bash
+$ deebase api generate posts
+Generated: api/routers/posts.py
+
+$ deebase api generate --all
+Generated: api/routers/users.py
+Generated: api/routers/posts.py
+Generated: api/routers/comments.py
+```
+
+#### Testing Without a Webserver
+
+FastAPI's `TestClient` uses HTTPX to make requests directly to the ASGI application in-process, without starting an HTTP server:
+
+```python
+from fastapi.testclient import TestClient
+
+@pytest.fixture
+def client(app):
+    """Create test client - NO SERVER STARTED!"""
+    with TestClient(app) as client:
+        yield client
+
+def test_create_user(client):
+    """POST /api/users/ creates a user."""
+    response = client.post("/api/users/", json={
+        "name": "Alice",
+        "email": "alice@example.com"
+    })
+
+    assert response.status_code == 201
+    assert response.json()["name"] == "Alice"
+```
+
+**How it works:**
+1. TestClient wraps the FastAPI app
+2. Requests go directly to `app(scope, receive, send)` - no network
+3. Response captured from ASGI `send()` calls
+4. Fast, isolated, no socket overhead
+
+#### Tests (~55 new tests)
+
+**Router Generation (10):**
+- Generate router from dataclass
+- Generate Pydantic models with correct types
+- Field descriptions from docments
+- FK fields annotated in description
+- pk_field excluded from Create/Update
+- Defaults preserved
+- All Optional in Update model
+- Handles Text, Optional, datetime types
+
+**Endpoint Tests (12):**
+- GET / returns list
+- GET / with limit parameter
+- GET /{pk} returns single
+- GET /{pk} returns 404 for missing
+- POST / creates and returns 201
+- POST / validates required fields
+- PATCH /{pk} updates
+- PATCH /{pk} partial update
+- PATCH /{pk} returns 404
+- DELETE /{pk} returns 204
+- DELETE /{pk} returns 404
+
+**FK Validation Tests (8):**
+- FK validation passes for valid FK
+- FK validation fails for invalid FK
+- FK validation skips null FK
+- FK validation returns all errors
+- FK validation disabled flag
+- Multiple FK columns validated
+- FK validation on update
+
+**Custom Validators Tests (5):**
+- Validator applied on create
+- Validator applied on update
+- Validator transforms values
+- Validator can raise ValidationError
+- Multiple validators
+
+**Route Override Tests (8):**
+- Override each handler type
+- Exclude routes
+- Multiple overrides
+- Override with custom response model
+
+**CRUDRouter Hooks Tests (6):**
+- before_create/after_create
+- before_update/after_update
+- before_delete/after_delete
+
+**Exception Mapping Tests (4):**
+- NotFoundError → 404
+- IntegrityError → 422
+- ValidationError → 422
+- ForeignKeyValidationError → 422
+
+**CLI Tests (4):**
+- `deebase api init` creates structure and installs deps
+- `deebase api generate` creates router
+- `deebase api serve` starts uvicorn
+
+#### Deliverables
+
+**Code:**
+- `src/deebase/api/` package (~500 lines)
+  - `__init__.py` - Public exports
+  - `router.py` - CRUDRouter class and create_crud_router()
+  - `models.py` - Pydantic model generation from dataclass + docments
+  - `validators.py` - FK validation, custom validators
+  - `exceptions.py` - ForeignKeyValidationError
+  - `docs.py` - docments integration
+- `src/deebase/cli/api_cmd.py` - CLI commands with dependency installation
+
+**Examples:**
+- `examples/phase15_fastapi.py` - Basic API example
+- `examples/complete_blog_api_example.py` - Full blog with CLI + API + HTML routes + overrides
+
+**Tests:**
+- `tests/test_api_*.py` (~55 tests using TestClient)
+
+**Documentation:**
+- `docs/api_reference.md` - Updated with API module
+- `docs/fastapi_guide.md` - Complete FastAPI integration guide
+- `docs/cli_reference.md` - New `api` commands
+
+#### What's NOT Included
+
+- **Authentication/Authorization** - Use FastAPI's standard patterns
+- **Rate limiting** - Use middleware like slowapi
+- **Pagination cursors** - Basic limit/offset only
+- **Bulk operations** - POST /bulk, DELETE /bulk
+- **Filtering/sorting query params** - Use xtra() manually
+- **Relationship expansion** - Use views for JOINs
+- **GraphQL** - REST only
+
+---
+
 ## Testing Strategy
 
 Each phase includes tests:
