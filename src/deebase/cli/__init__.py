@@ -22,6 +22,9 @@ Commands:
     deebase codegen             - Generate model code from database
     deebase migrate seal        - Seal current migration
     deebase migrate status      - Show migration status
+    deebase api init            - Initialize API structure
+    deebase api serve           - Start development server
+    deebase api generate        - Generate router code
 """
 
 import click
@@ -33,6 +36,7 @@ from .index_cmd import index
 from .view_cmd import view
 from .codegen_cmd import codegen
 from .migrate_cmd import migrate
+from .api_cmd import api
 from .utils import run_async
 
 
@@ -55,6 +59,7 @@ main.add_command(index)
 main.add_command(view)
 main.add_command(codegen)
 main.add_command(migrate)
+main.add_command(api)
 
 
 if __name__ == "__main__":
