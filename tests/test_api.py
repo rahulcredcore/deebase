@@ -492,6 +492,282 @@ class TestRouteCustomization:
             response = client.delete("/api/users/1")
             assert response.status_code in (404, 405)
 
+    @pytest.mark.asyncio
+    async def test_override_create_handler(self, db):
+        """Should be able to override the create handler with custom function."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        await db.create(User, pk="id")
+
+        # Custom create handler that adds a prefix to the name
+        async def custom_create(data: dict):
+            table = db.t.user
+            data_dict = data.model_dump() if hasattr(data, 'model_dump') else dict(data)
+            data_dict["name"] = f"CUSTOM_{data_dict.get('name', '')}"
+            record = await table.insert(data_dict)
+            return record
+
+        app = FastAPI()
+        router = create_crud_router(
+            db=db,
+            model_cls=User,
+            prefix="/api/users",
+            overrides={"create": custom_create},
+        )
+        app.include_router(router)
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/users/",
+                json={"name": "Alice", "email": "alice@test.com"}
+            )
+            assert response.status_code == 201
+            data = response.json()
+            # Our custom handler should have added CUSTOM_ prefix
+            assert data["name"] == "CUSTOM_Alice"
+
+    @pytest.mark.asyncio
+    async def test_override_list_handler(self, db):
+        """Should be able to override the list handler."""
+        from fastapi import FastAPI, Query
+        from fastapi.testclient import TestClient
+
+        await db.create(User, pk="id")
+
+        # Insert some test data
+        table = db.t.user
+        await table.insert({"name": "Alice", "email": "alice@test.com", "status": "active"})
+        await table.insert({"name": "Bob", "email": "bob@test.com", "status": "inactive"})
+
+        # Custom list handler that only returns active users
+        # Must match FastAPI signature expectations (limit is optional query param)
+        async def custom_list(limit: int | None = Query(None)):
+            table = db.t.user
+            all_users = await table(limit=limit)
+            # Filter to only active users (handle both dict and dataclass)
+            def get_status(u):
+                return u.get("status") if isinstance(u, dict) else getattr(u, "status", None)
+            return [u if isinstance(u, dict) else {"id": u.id, "name": u.name, "email": u.email, "status": u.status}
+                    for u in all_users if get_status(u) == "active"]
+
+        app = FastAPI()
+        router = create_crud_router(
+            db=db,
+            model_cls=User,
+            prefix="/api/users",
+            overrides={"list": custom_list},
+        )
+        app.include_router(router)
+
+        with TestClient(app) as client:
+            response = client.get("/api/users/")
+            assert response.status_code == 200
+            data = response.json()
+            # Should only return active users
+            assert len(data) == 1
+            assert data[0]["name"] == "Alice"
+
+    @pytest.mark.asyncio
+    async def test_override_get_handler(self, db):
+        """Should be able to override the get handler."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        await db.create(User, pk="id")
+
+        table = db.t.user
+        user = await table.insert({"name": "Alice", "email": "alice@test.com"})
+        user_id = user["id"] if isinstance(user, dict) else user.id
+
+        # Custom get handler - pk comes from path parameter
+        async def custom_get(pk):
+            table = db.t.user
+            record = await table[pk]
+            # Return modified response (handle both dict and dataclass)
+            if isinstance(record, dict):
+                result = dict(record)
+            else:
+                from dataclasses import asdict
+                result = asdict(record)
+            result["status"] = "custom_fetched"
+            return result
+
+        app = FastAPI()
+        router = create_crud_router(
+            db=db,
+            model_cls=User,
+            prefix="/api/users",
+            overrides={"get": custom_get},
+        )
+        app.include_router(router)
+
+        with TestClient(app) as client:
+            response = client.get(f"/api/users/{user_id}")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["name"] == "Alice"
+            assert data["status"] == "custom_fetched"
+
+    @pytest.mark.asyncio
+    async def test_override_update_handler(self, db):
+        """Should be able to override the update handler."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from pydantic import BaseModel
+        from typing import Optional
+
+        await db.create(User, pk="id")
+
+        table = db.t.user
+        user = await table.insert({"name": "Alice", "email": "alice@test.com"})
+        user_id = user["id"] if isinstance(user, dict) else user.id
+
+        # Track that our handler was called
+        update_log = []
+
+        # Custom update handler - must accept pk and Pydantic model
+        # Define a simple update model for the override
+        class UserUpdateOverride(BaseModel):
+            name: Optional[str] = None
+            email: Optional[str] = None
+            status: Optional[str] = None
+
+        async def custom_update(pk, data: UserUpdateOverride):
+            from dataclasses import asdict
+            table = db.t.user
+            existing = await table[pk]
+            # Convert to dict if dataclass
+            existing_dict = existing if isinstance(existing, dict) else asdict(existing)
+            data_dict = data.model_dump(exclude_unset=True)
+            update_log.append({"pk": pk, "changes": data_dict})
+            updated = {**existing_dict, **data_dict, "id": int(pk)}
+            record = await table.update(updated)
+            # Return as dict
+            return record if isinstance(record, dict) else asdict(record)
+
+        app = FastAPI()
+        router = create_crud_router(
+            db=db,
+            model_cls=User,
+            prefix="/api/users",
+            overrides={"update": custom_update},
+        )
+        app.include_router(router)
+
+        with TestClient(app) as client:
+            response = client.patch(
+                f"/api/users/{user_id}",
+                json={"name": "Alice Updated"}
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["name"] == "Alice Updated"
+            # Verify our custom handler logged the update
+            assert len(update_log) == 1
+            assert update_log[0]["pk"] == str(user_id)  # pk comes as string from path
+
+    @pytest.mark.asyncio
+    async def test_override_delete_handler(self, db):
+        """Should be able to override the delete handler."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        await db.create(User, pk="id")
+
+        table = db.t.user
+        user = await table.insert({"name": "Alice", "email": "alice@test.com"})
+        user_id = user["id"] if isinstance(user, dict) else user.id
+
+        # Custom delete handler that soft-deletes instead
+        # pk comes from path parameter as string
+        async def custom_delete(pk):
+            from dataclasses import asdict
+            table = db.t.user
+            existing = await table[pk]
+            # Convert to dict if dataclass
+            existing_dict = existing if isinstance(existing, dict) else asdict(existing)
+            # Soft delete by setting status to "deleted"
+            existing_dict["status"] = "deleted"
+            await table.update(existing_dict)
+            # Return None for 204 response
+
+        app = FastAPI()
+        router = create_crud_router(
+            db=db,
+            model_cls=User,
+            prefix="/api/users",
+            overrides={"delete": custom_delete},
+        )
+        app.include_router(router)
+
+        with TestClient(app) as client:
+            response = client.delete(f"/api/users/{user_id}")
+            assert response.status_code == 204
+
+            # Verify the record still exists but is marked as deleted
+            response = client.get(f"/api/users/{user_id}")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "deleted"
+
+    @pytest.mark.asyncio
+    async def test_multiple_overrides(self, db):
+        """Should be able to override multiple handlers at once."""
+        from fastapi import FastAPI, Query
+        from fastapi.testclient import TestClient
+        from pydantic import BaseModel
+
+        await db.create(User, pk="id")
+
+        # Track which custom handlers were called
+        called_handlers = []
+
+        # Define create model for the override
+        class UserCreateOverride(BaseModel):
+            name: str
+            email: str
+            status: str = "active"
+
+        async def custom_list(limit: int | None = Query(None)):
+            called_handlers.append("list")
+            table = db.t.user
+            return await table(limit=limit)
+
+        async def custom_create(data: UserCreateOverride):
+            called_handlers.append("create")
+            table = db.t.user
+            data_dict = data.model_dump()
+            return await table.insert(data_dict)
+
+        app = FastAPI()
+        router = create_crud_router(
+            db=db,
+            model_cls=User,
+            prefix="/api/users",
+            overrides={
+                "list": custom_list,
+                "create": custom_create,
+            },
+        )
+        app.include_router(router)
+
+        with TestClient(app) as client:
+            # Test create
+            response = client.post(
+                "/api/users/",
+                json={"name": "Alice", "email": "alice@test.com"}
+            )
+            assert response.status_code == 201
+
+            # Test list
+            response = client.get("/api/users/")
+            assert response.status_code == 200
+
+            # Verify both custom handlers were called
+            assert "create" in called_handlers
+            assert "list" in called_handlers
+
 
 # ============================================================================
 # CRUDRouter Hooks Tests
