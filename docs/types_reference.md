@@ -322,6 +322,121 @@ print(post["metadata"]["tags"])  # ["tutorial", "python"]
 - Works seamlessly in both SQLite and PostgreSQL
 - No need to manually serialize/deserialize
 
+## API Types (FastAPI Integration)
+
+When using DeeBase's FastAPI integration (`deebase[api]`), Pydantic models are auto-generated from your dataclass models. These are used for request/response validation and OpenAPI documentation.
+
+### Generated Pydantic Models
+
+For each dataclass model, three Pydantic models are generated:
+
+| Model | Purpose | Fields |
+|-------|---------|--------|
+| `{Model}Create` | POST request body | All fields except PK |
+| `{Model}Update` | PATCH request body | All fields optional |
+| `{Model}Response` | Response body | All fields including PK |
+
+**Example:**
+
+```python
+from dataclasses import dataclass
+from deebase import ForeignKey
+
+@dataclass
+class Post:
+    id: int                            # Post ID
+    author_id: ForeignKey[int, "user"] # Author's user ID
+    title: str                         # Post title
+    published: bool = False            # Publication status
+```
+
+Generates:
+
+```python
+# PostCreate (for POST /posts/)
+class PostCreate(BaseModel):
+    author_id: int    # Required (FK type normalized to int)
+    title: str        # Required
+    published: bool = False  # Optional with default
+
+# PostUpdate (for PATCH /posts/{id})
+class PostUpdate(BaseModel):
+    author_id: Optional[int] = None
+    title: Optional[str] = None
+    published: Optional[bool] = None
+
+# PostResponse (for all responses)
+class PostResponse(BaseModel):
+    id: int           # PK included
+    author_id: int
+    title: str
+    published: bool
+```
+
+### Type Normalization
+
+Complex DeeBase types are normalized for Pydantic:
+
+| DeeBase Type | Pydantic Type |
+|--------------|---------------|
+| `ForeignKey[int, "user"]` | `int` |
+| `ForeignKey[str, "user.uuid"]` | `str` |
+| `Text` | `str` |
+| `Optional[T]` | `Optional[T]` |
+| `dict` | `dict` |
+| `datetime` | `datetime` |
+
+### Field Descriptions from Comments
+
+Field descriptions for OpenAPI come from inline comments (via `fastcore.docments()`):
+
+```python
+@dataclass
+class Post:
+    id: int                   # Unique post identifier
+    title: str                # Title displayed in listings
+    content: str              # Full markdown content
+```
+
+In OpenAPI/Swagger UI:
+- `id`: "Unique post identifier"
+- `title`: "Title displayed in listings"
+- `content`: "Full markdown content"
+
+### ForeignKeyValidationError
+
+A special exception for FK validation failures:
+
+```python
+from deebase.api import ForeignKeyValidationError
+
+# Raised when FK references don't exist
+# HTTP Status: 422 Unprocessable Entity
+# Response body:
+{
+    "detail": {
+        "errors": [
+            {
+                "field": "author_id",
+                "value": 999,
+                "reference": "user.id",
+                "message": "Referenced user with id=999 does not exist"
+            }
+        ]
+    }
+}
+```
+
+### Installation
+
+API types require the `[api]` extra:
+
+```bash
+pip install deebase[api]
+```
+
+This installs: `fastapi`, `pydantic`, `fastcore`, `uvicorn`, `jinja2`.
+
 ## Future Enhancements
 
 Planned features:

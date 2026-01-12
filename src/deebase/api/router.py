@@ -137,37 +137,22 @@ class CRUDRouter:
 
     def _extract_fk_metadata(self) -> list[dict]:
         """Extract FK metadata from model class annotations."""
-        from typing import get_type_hints, get_origin, get_args
+        from ..types import is_foreign_key, get_foreign_key_info
 
         fk_metadata = []
-        try:
-            hints = get_type_hints(self.model_cls)
-        except Exception:
-            hints = getattr(self.model_cls, "__annotations__", {})
 
-        for field_name, field_type in hints.items():
-            # Check for ForeignKey type
-            type_str = str(field_type)
-            if "ForeignKey[" in type_str:
-                args = get_args(field_type)
-                if len(args) >= 2:
-                    # Second arg is Literal["table"] or similar
-                    ref_origin = get_origin(args[1])
-                    if ref_origin is not None:
-                        ref_args = get_args(args[1])
-                        if ref_args:
-                            ref_str = str(ref_args[0])
-                            # Parse "table" or "table.column"
-                            if "." in ref_str:
-                                fk_metadata.append({
-                                    "column": field_name,
-                                    "references": ref_str
-                                })
-                            else:
-                                fk_metadata.append({
-                                    "column": field_name,
-                                    "references": f"{ref_str}.id"
-                                })
+        # Get raw annotations (not resolved through get_type_hints)
+        # because ForeignKey[T, "ref"] returns a _ForeignKeyType instance
+        annotations = getattr(self.model_cls, "__annotations__", {})
+
+        for field_name, field_type in annotations.items():
+            # Check if this is a ForeignKey type (a _ForeignKeyType instance)
+            if is_foreign_key(field_type):
+                _, table, column = get_foreign_key_info(field_type)
+                fk_metadata.append({
+                    "column": field_name,
+                    "references": f"{table}.{column}"
+                })
 
         return fk_metadata
 
@@ -323,6 +308,9 @@ class CRUDRouter:
             record = await self.after_create(self._record_to_dict(record))
 
             return record
+        except HTTPException:
+            # Re-raise HTTP exceptions directly (from hooks)
+            raise
         except ForeignKeyValidationError as e:
             raise _handle_deebase_exception(e)
         except Exception as e:
@@ -364,6 +352,9 @@ class CRUDRouter:
             record = await self.after_update(self._record_to_dict(record))
 
             return record
+        except HTTPException:
+            # Re-raise HTTP exceptions directly (from hooks)
+            raise
         except ForeignKeyValidationError as e:
             raise _handle_deebase_exception(e)
         except Exception as e:
@@ -383,6 +374,9 @@ class CRUDRouter:
             # Call after_delete hook
             await self.after_delete(pk)
 
+        except HTTPException:
+            # Re-raise HTTP exceptions directly (from hooks)
+            raise
         except Exception as e:
             raise _handle_deebase_exception(e)
 

@@ -27,8 +27,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 ## Project Status
 
-✅ **All 14 Phases Complete** - Production-ready with full migration support
-🚧 **Phase 15 In Progress** - FastAPI Integration (core implementation done, docs pending)
+✅ **All 15 Phases Complete** - Production-ready with full FastAPI integration
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
@@ -44,7 +43,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 12 Complete** - Indexes
 ✅ **Phase 13 Complete** - CLI (Click-based, migration-ready)
 ✅ **Phase 14 Complete** - Migrations (simple runner, fastmigrate-style API)
-🚧 **Phase 15 In Progress** - FastAPI Integration (CRUD routers, Pydantic models, FK validation)
+✅ **Phase 15 Complete** - FastAPI Integration (CRUD routers, Pydantic models, FK validation)
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
@@ -66,9 +65,10 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Transaction support (`db.transaction()`, atomic multi-operation commits)
 - ✅ FK navigation (`table.fk.column()`, `get_parent()`, `get_children()`)
 - ✅ Indexes support (`Index` class, `indexes` parameter, `create_index()`, `drop_index()`)
-- ✅ Command-Line Interface (`deebase init/table/index/view/codegen/migrate`)
+- ✅ Command-Line Interface (`deebase init/table/index/view/codegen/migrate/api`)
 - ✅ Migrations (`MigrationRunner`, `migrate up/down`, `db backup`)
-- ✅ Complete documentation (API reference, migration guide, examples)
+- ✅ FastAPI Integration (`create_crud_router()`, `CRUDRouter` with hooks, FK validation)
+- ✅ Complete documentation (API reference, migration guide, CLI reference, examples)
 - ✅ 409 passing tests (375 core + 34 API tests)
 
 **Phase 8 Deliverables:**
@@ -142,31 +142,18 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - `db.enable_foreign_keys()` helper for cross-database FK enforcement
 - 38 new tests (375 total passing tests)
 
-**Phase 15 In Progress (FastAPI Integration):**
-
-Core implementation complete:
-- ✅ `create_crud_router()` - Auto-generate REST CRUD endpoints from `@dataclass` models
-- ✅ `CRUDRouter` class with hooks (`before_create`, `after_create`, etc.) for customization
-- ✅ Pydantic model generation from dataclass + `fastcore.docments()` for OpenAPI docs
-- ✅ FK existence validation before insert/update (better errors than DB constraint failures)
-- ✅ Route override mechanism via `overrides` dict, `exclude` set, or subclassing
-- ✅ Exception → HTTP mapping (NotFoundError→404, IntegrityError→422, etc.)
-- ✅ CLI commands: `deebase api init`, `deebase api serve`, `deebase api generate`
-- ✅ `examples/phase15_fastapi.py` example
-- ✅ 34 new tests using FastAPI TestClient (409 total passing tests)
-- ✅ Optional `[api]` dependency group in pyproject.toml
-
-**Phase 15 Remaining Work:**
-- 📋 Create `complete_blog_api_example.py` (CLI + API + HTML + overrides)
-- 📋 Run all examples to verify they still work
-- 📋 Update `docs/api_reference.md` with API module documentation
-- 📋 Update `docs/cli_reference.md` with `deebase api` commands
-- 📋 Update `docs/implemented.md` with Phase 15 usage examples
-- 📋 Update `README.md` with FastAPI integration section
-- 📋 Update `examples/complete_example.py` with API showcase
-- 📋 **IMPORTANT: Update install docs** - API dependencies are optional extras:
-  - `pip install deebase[api]` or `uv add deebase[api]`
-  - Required for: fastapi, pydantic, fastcore, uvicorn, jinja2
+**Phase 15 Deliverables:**
+- `create_crud_router()` - Auto-generate REST CRUD endpoints from `@dataclass` models
+- `CRUDRouter` class with hooks (`before_create`, `after_create`, etc.) for customization
+- Pydantic model generation from dataclass + `fastcore.docments()` for OpenAPI docs
+- FK existence validation before insert/update (better errors than DB constraint failures)
+- Route override mechanism via `overrides` dict, `exclude` set, or subclassing
+- Exception → HTTP mapping (NotFoundError→404, IntegrityError→422, etc.)
+- CLI commands: `deebase api init`, `deebase api serve`, `deebase api generate`
+- `examples/phase15_fastapi.py` and `examples/complete_blog_api_example.py` examples
+- 34 new tests using FastAPI TestClient (409 total passing tests)
+- Optional `[api]` dependency group: `pip install deebase[api]` or `uv add deebase[api]`
+- Complete documentation in API reference, CLI reference, and implemented.md
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
@@ -619,7 +606,7 @@ src/deebase/
 - ✅ `table.indexes` property
 - ✅ 30 new tests (280 total passing)
 
-See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 14-phase roadmap.
+See [docs/implementation_plan.md](docs/implementation_plan.md) for complete 15-phase roadmap.
 See [docs/implemented.md](docs/implemented.md) for detailed usage examples of all working features.
 
 ## Examples
@@ -669,8 +656,14 @@ uv run examples/phase13_cli.py
 # Phase 14: Migrations
 uv run examples/phase14_migrations.py
 
+# Phase 15: FastAPI Integration
+uv run examples/phase15_fastapi.py
+
 # Complete CLI example: Building a blog using actual CLI commands
 uv run examples/complete_cli_example.py
+
+# Complete Blog API: FastAPI integration with hooks and FK validation
+uv run examples/complete_blog_api_example.py
 
 # Complete example: Blog database with full features (Python API)
 uv run examples/complete_example.py
@@ -736,7 +729,7 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 - **[docs/migrating_from_fastlite.md](docs/migrating_from_fastlite.md)** - Migration guide from fastlite
 - **[docs/how-it-works.md](docs/how-it-works.md)** - Technical internals guide for developers (SQLAlchemy, CLI architecture, etc.)
 - **[docs/types_reference.md](docs/types_reference.md)** - Complete type system reference
-- **[docs/implementation_plan.md](docs/implementation_plan.md)** - 14-phase development roadmap
+- **[docs/implementation_plan.md](docs/implementation_plan.md)** - 15-phase development roadmap
 - **[examples/](examples/)** - Runnable code examples
 
 ## Development Workflow
@@ -765,17 +758,18 @@ git checkout -b feature/descriptive-name
 - Run all examples to verify no regressions
 
 ### 5. Documentation Updates (one by one)
-Update each documentation file:
+Update each documentation file (ALL are important - don't skip any):
 1. `examples/phaseN_*.py` - Create phase example
-2. `examples/complete_example.py` - Add new feature showcase
-3. `docs/api_reference.md` - API documentation
+2. `examples/complete_example.py` - Add new feature showcase (or reference new example)
+3. `docs/api_reference.md` - API documentation (all new classes/methods)
 4. `docs/cli_reference.md` - CLI commands (if CLI changes)
-5. `docs/implemented.md` - Feature guide
-6. `docs/best-practices.md` - Design decisions
-7. `docs/types_reference.md` - If new types added
-8. `docs/how-it-works.md` - SQLAlchemy implementation details
-9. `README.md` - User-facing documentation
-10. `CLAUDE.md` - Developer context
+5. `docs/implemented.md` - Feature guide with usage examples
+6. `docs/best-practices.md` - Design decisions and patterns
+7. `docs/types_reference.md` - If new types added (including API types for FastAPI)
+8. `docs/how-it-works.md` - Technical internals (SQLAlchemy implementation details)
+9. `docs/implementation_plan.md` - Mark phase as complete, update deliverables
+10. `README.md` - User-facing documentation
+11. `CLAUDE.md` - Developer context and phase status
 
 ### 6. Finalize & Create Pull Request
 ```bash
@@ -799,9 +793,16 @@ gh pr create --base main --title "Phase N: Description" --body "## Summary
 - [ ] All examples run successfully"
 ```
 
-After the PR is approved and merged, delete the feature branch:
+### 7. Return to Main Branch
+After creating the PR (don't wait for merge), switch back to main:
 ```bash
 git checkout main
+```
+
+This keeps your local repo on main, ready for other work while PR is reviewed.
+
+After the PR is approved and merged:
+```bash
 git pull
 git branch -d feature/phase-N-description
 ```
@@ -855,7 +856,7 @@ gh release create vX.Y.Z --title "vX.Y.Z - Title" --notes "Changelog here"
 
 ## Contributing
 
-This project is production-ready. The implementation follows a 14-phase plan documented in `docs/implementation_plan.md`.
+This project is production-ready. The implementation follows a 15-phase plan documented in `docs/implementation_plan.md`.
 
 ## License
 

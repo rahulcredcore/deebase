@@ -16,6 +16,7 @@ This guide helps you make informed decisions when using DeeBase, explaining the 
 - [Performance Considerations](#performance-considerations)
 - [Schema Evolution](#schema-evolution)
 - [CLI vs Python API: Choosing Your Interface](#cli-vs-python-api-choosing-your-interface)
+- [FastAPI Integration: Building REST APIs](#fastapi-integration-building-rest-apis)
 
 ---
 
@@ -1759,6 +1760,272 @@ class UserWithMethods(Users):
 
 ---
 
+## FastAPI Integration: Building REST APIs
+
+DeeBase's API module auto-generates REST endpoints from dataclass models. Understanding best practices helps you build robust, maintainable APIs.
+
+### When to Use create_crud_router()
+
+**Use `create_crud_router()` when:**
+- You want standard CRUD endpoints quickly
+- Your dataclass model maps directly to API resources
+- You need basic validation and FK enforcement
+
+**Don't use it when:**
+- You need complex multi-table operations in one endpoint
+- Response shape differs significantly from database model
+- You need custom authentication per route
+
+### Route Customization Approaches
+
+Three levels of customization, from least to most:
+
+#### Level 1: Exclude Routes
+
+Disable routes you don't want:
+
+```python
+from deebase.api import create_crud_router
+
+# No delete endpoint (read-only API)
+router = create_crud_router(
+    db, Post,
+    prefix="/api/posts",
+    exclude={"delete"}
+)
+
+# Only GET endpoints
+router = create_crud_router(
+    db, Post,
+    prefix="/api/posts",
+    exclude={"create", "update", "delete"}
+)
+```
+
+**Use for:** Removing endpoints that shouldn't exist for security or design reasons.
+
+#### Level 2: Override Specific Routes
+
+Replace individual route handlers:
+
+```python
+from deebase.api import create_crud_router
+from fastapi import HTTPException
+
+# Custom create handler with validation
+async def create_post(data: PostCreate) -> dict:
+    if len(data.title) < 5:
+        raise HTTPException(status_code=400, detail="Title too short")
+    # Your custom implementation
+    return await db.t.post.insert(data.model_dump())
+
+router = create_crud_router(
+    db, Post,
+    prefix="/api/posts",
+    overrides={"create": create_post}
+)
+```
+
+**Use for:** Adding custom logic to specific operations while keeping others standard.
+
+#### Level 3: Subclass CRUDRouter
+
+Full control via hooks:
+
+```python
+from deebase.api import CRUDRouter
+from fastapi import HTTPException
+from datetime import datetime
+
+class PostRouter(CRUDRouter):
+    async def before_create(self, data: dict) -> dict:
+        """Add timestamps and validate."""
+        data["created_at"] = datetime.now().isoformat()
+        if len(data.get("title", "")) < 5:
+            raise HTTPException(status_code=400, detail="Title too short")
+        return data
+
+    async def after_create(self, record: dict) -> dict:
+        """Enrich response or trigger side effects."""
+        # Add computed fields, send notifications, etc.
+        record["word_count"] = len(record.get("content", "").split())
+        return record
+
+    async def before_delete(self, pk: Any) -> None:
+        """Validate deletion is allowed."""
+        post = await self.db.t.post[pk]
+        if post.get("published"):
+            raise HTTPException(status_code=400, detail="Cannot delete published posts")
+
+router = PostRouter(db, Post, prefix="/api/posts")
+app.include_router(router.router)
+```
+
+**Use for:** Complex business logic, audit logging, soft deletes, or when multiple hooks are needed.
+
+### Error Handling in Web APIs
+
+#### Use HTTPException in Hooks
+
+Hooks should raise `HTTPException` for business logic errors:
+
+```python
+class OrderRouter(CRUDRouter):
+    async def before_create(self, data: dict) -> dict:
+        # Validate business rules
+        if data.get("quantity", 0) <= 0:
+            raise HTTPException(status_code=400, detail="Quantity must be positive")
+
+        # Check stock
+        product = await self.db.t.product[data["product_id"]]
+        if product["stock"] < data["quantity"]:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Insufficient stock. Available: {product['stock']}"
+            )
+
+        return data
+```
+
+#### DeeBase Exceptions are Handled Automatically
+
+You don't need to catch DeeBase exceptions in hooks - they're mapped to HTTP codes:
+
+```python
+# In router handler (automatic):
+# NotFoundError → 404 Not Found
+# IntegrityError → 422 Unprocessable Entity
+# ValidationError → 422 Unprocessable Entity
+# ForeignKeyValidationError → 422 with structured errors
+# SchemaError → 500 Internal Server Error
+# ConnectionError → 503 Service Unavailable
+```
+
+### FK Validation Best Practices
+
+#### Enable FK Validation (Default)
+
+FK validation provides better error messages:
+
+```python
+# With validate_fks=True (default):
+# POST {"author_id": 999, "title": "Test"}
+# → 422 {"detail": {"errors": [{"field": "author_id", "value": 999, ...}]}}
+
+# Without validation (database error):
+# → 500 "FOREIGN KEY constraint failed"
+```
+
+#### Disable for Performance (If Needed)
+
+If you trust your data sources or need maximum performance:
+
+```python
+router = create_crud_router(
+    db, Post,
+    prefix="/api/posts",
+    validate_fks=False  # Skip FK lookups
+)
+```
+
+### Custom Validators
+
+Add field transformation or validation:
+
+```python
+def clean_title(value: str) -> str:
+    """Strip whitespace and limit length."""
+    return value.strip()[:200] if value else value
+
+def normalize_email(value: str) -> str:
+    """Lowercase email addresses."""
+    return value.lower().strip() if value else value
+
+router = create_crud_router(
+    db, User,
+    prefix="/api/users",
+    validators={
+        "name": clean_title,
+        "email": normalize_email,
+    }
+)
+```
+
+Validators run on both create and update operations.
+
+### OpenAPI Documentation
+
+Pydantic models are auto-generated with field descriptions from `fastcore.docments()`:
+
+```python
+from dataclasses import dataclass
+from deebase import ForeignKey
+
+@dataclass
+class Post:
+    id: int                            # Post ID
+    author_id: ForeignKey[int, "user"] # Author's user ID
+    title: str                         # Post title
+    content: str                       # Post body content
+    published: bool = False            # Publication status
+```
+
+The comments become OpenAPI field descriptions automatically.
+
+### Mounting Multiple Routers
+
+Organize routers by resource:
+
+```python
+from fastapi import FastAPI
+from deebase import Database
+from deebase.api import create_crud_router
+
+app = FastAPI(title="Blog API")
+db = Database("sqlite+aiosqlite:///blog.db")
+
+# Mount routers with prefixes
+app.include_router(create_crud_router(db, User, prefix="/api/users", tags=["Users"]))
+app.include_router(create_crud_router(db, Post, prefix="/api/posts", tags=["Posts"]))
+app.include_router(create_crud_router(db, Comment, prefix="/api/comments", tags=["Comments"]))
+```
+
+### Combining API Routes with HTML Routes
+
+For hybrid apps with both API and HTML:
+
+```python
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from jinja2 import Template
+
+app = FastAPI()
+
+# API routes (JSON)
+app.include_router(create_crud_router(db, Post, prefix="/api/posts"))
+
+# HTML routes
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    posts = await db.t.post()
+    html = Template("<ul>{% for p in posts %}<li>{{p.title}}</li>{% endfor %}</ul>")
+    return html.render(posts=posts)
+```
+
+### Installation Note
+
+FastAPI integration requires the `[api]` extra:
+
+```bash
+pip install deebase[api]
+# or
+uv add deebase[api]
+```
+
+This installs: fastapi, pydantic, fastcore, uvicorn, jinja2.
+
+---
+
 ## Summary: Quick Decision Guide
 
 | Scenario | Recommendation |
@@ -1782,6 +2049,11 @@ class UserWithMethods(Users):
 | **Application code** | Use Python API |
 | **Migration management** | Use CLI (`deebase migrate seal`) |
 | **Code generation** | Use CLI (`deebase codegen`) |
+| **REST API** | Use `create_crud_router()` for standard CRUD |
+| **Custom API logic** | Subclass `CRUDRouter` with hooks |
+| **Disable API routes** | Use `exclude={"delete"}` parameter |
+| **Custom API handlers** | Use `overrides={"create": handler}` |
+| **API validation errors** | Raise `HTTPException` in hooks |
 
 ---
 

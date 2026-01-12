@@ -3618,6 +3618,283 @@ asyncio.run(main())
 
 ---
 
+## Phase 15: FastAPI Integration ✅ COMPLETE
+
+Phase 15 adds FastAPI integration for auto-generating REST CRUD endpoints from dataclass models.
+
+**Installation:** Requires optional API dependencies:
+```bash
+pip install deebase[api]
+# or: uv add deebase[api]
+```
+
+### Auto-Generated CRUD Routers
+
+```python
+from dataclasses import dataclass
+from fastapi import FastAPI
+from deebase import Database, ForeignKey, Text
+from deebase.api import create_crud_router
+
+@dataclass
+class User:
+    id: int
+    name: str
+    email: str
+    status: str = "active"
+
+@dataclass
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]
+    title: str
+    content: Text
+    published: bool = False
+
+app = FastAPI()
+db = Database("sqlite+aiosqlite:///blog.db")
+
+# Basic router - generates GET, POST, PATCH, DELETE endpoints
+app.include_router(create_crud_router(
+    db=db,
+    model_cls=User,
+    prefix="/api/users",
+    tags=["Users"],
+))
+
+# Router with FK validation - validates author_id exists before insert
+app.include_router(create_crud_router(
+    db=db,
+    model_cls=Post,
+    prefix="/api/posts",
+    tags=["Posts"],
+    validate_fks=True,
+))
+
+# Router with excluded routes
+app.include_router(create_crud_router(
+    db=db,
+    model_cls=Post,
+    prefix="/api/posts",
+    exclude={"delete"},  # No DELETE endpoint
+))
+```
+
+**Generated Endpoints:**
+| Method | Path | Operation |
+|--------|------|-----------|
+| GET | `/api/users/` | List all users |
+| GET | `/api/users/{id}` | Get user by ID |
+| POST | `/api/users/` | Create user (201) |
+| PATCH | `/api/users/{id}` | Partial update |
+| DELETE | `/api/users/{id}` | Delete (204) |
+
+### Custom Routers with Hooks
+
+```python
+from fastapi import HTTPException
+from deebase.api import CRUDRouter
+
+class PostRouter(CRUDRouter):
+    async def before_create(self, data: dict) -> dict:
+        """Auto-generate slug from title."""
+        if 'title' in data and 'slug' not in data:
+            data['slug'] = data['title'].lower().replace(' ', '-')[:50]
+        return data
+
+    async def after_create(self, record: dict) -> dict:
+        """Log new post creation."""
+        print(f"New post created: {record['id']}")
+        return record
+
+    async def before_delete(self, pk) -> None:
+        """Prevent deleting published posts."""
+        table = await self._get_table()
+        post = await table[pk]
+        if post.get('published'):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete a published post"
+            )
+
+# Use the custom router
+post_router = PostRouter(
+    db=db,
+    model_cls=Post,
+    prefix="/api/posts",
+    tags=["Posts"],
+    validate_fks=True,
+)
+app.include_router(post_router.router)
+```
+
+### FK Validation
+
+FK validation prevents inserting records with non-existent foreign key references:
+
+```python
+# POST /api/posts/
+# Body: {"author_id": 999, "title": "Test", "content": "..."}
+
+# Response (422):
+{
+    "detail": {
+        "type": "foreign_key_validation_error",
+        "errors": [
+            {
+                "field": "author_id",
+                "value": 999,
+                "message": "Referenced user with id=999 does not exist"
+            }
+        ]
+    }
+}
+```
+
+### Custom Validators
+
+```python
+app.include_router(create_crud_router(
+    db=db,
+    model_cls=Post,
+    prefix="/api/posts",
+    validators={
+        "title": lambda v: v.strip()[:200] if v else v,  # Trim and limit
+        "slug": lambda v: v.lower().replace(' ', '-') if v else v,
+    },
+))
+```
+
+### Exception to HTTP Status Mapping
+
+| Exception | HTTP Status |
+|-----------|-------------|
+| `NotFoundError` | 404 |
+| `IntegrityError` | 422 |
+| `ValidationError` | 422 |
+| `ForeignKeyValidationError` | 422 |
+| `InvalidOperationError` | 400 |
+| `ConnectionError` | 503 |
+
+### CLI Commands
+
+```bash
+# Initialize API structure
+deebase api init
+
+# Start development server
+deebase api serve --reload
+
+# Generate router code from tables
+deebase api generate users posts
+deebase api generate --all
+```
+
+### Complete Example
+
+```python
+import asyncio
+from dataclasses import dataclass
+from typing import Optional
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+
+from deebase import Database, ForeignKey, Text
+from deebase.api import create_crud_router, CRUDRouter
+
+@dataclass
+class User:
+    id: int
+    name: str
+    email: str
+    status: str = "active"
+
+@dataclass
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]
+    title: str
+    content: Text
+    published: bool = False
+
+class PostRouter(CRUDRouter):
+    async def before_delete(self, pk) -> None:
+        table = await self._get_table()
+        post = await table[pk]
+        if isinstance(post, dict) and post.get('published'):
+            raise HTTPException(400, "Cannot delete published posts")
+
+async def main():
+    db = Database("sqlite+aiosqlite:///:memory:")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        await db.create(User, pk="id", if_not_exists=True)
+        await db.create(Post, pk="id", if_not_exists=True)
+        await db.enable_foreign_keys()
+        yield
+        await db.close()
+
+    app = FastAPI(lifespan=lifespan)
+
+    # User routes
+    app.include_router(create_crud_router(
+        db=db, model_cls=User,
+        prefix="/api/users", tags=["Users"],
+    ))
+
+    # Post routes with custom hooks
+    post_router = PostRouter(
+        db=db, model_cls=Post,
+        prefix="/api/posts", tags=["Posts"],
+        validate_fks=True,
+    )
+    app.include_router(post_router.router)
+
+    # Test with FastAPI TestClient
+    with TestClient(app) as client:
+        # Create user
+        resp = client.post("/api/users/", json={"name": "Alice", "email": "alice@test.com"})
+        user = resp.json()
+        print(f"Created user: {user['name']} (id={user['id']})")
+
+        # Create post with valid FK
+        resp = client.post("/api/posts/", json={
+            "author_id": user['id'],
+            "title": "Hello World",
+            "content": "My first post!"
+        })
+        post = resp.json()
+        print(f"Created post: {post['title']}")
+
+        # Try creating post with invalid FK
+        resp = client.post("/api/posts/", json={
+            "author_id": 999,  # Non-existent!
+            "title": "Invalid",
+            "content": "..."
+        })
+        print(f"Invalid FK: {resp.status_code} - {resp.json()['detail']['type']}")
+
+asyncio.run(main())
+```
+
+### Testing
+
+- **34 new Phase 15 tests** - All passing ✅
+- **409 total tests** (Phases 1-15) - All passing ✅
+- Coverage:
+  - Pydantic model generation
+  - FK validation (valid, invalid, null, missing)
+  - Custom validators (sync and async)
+  - CRUD endpoint integration
+  - Route customization (exclude, overrides)
+  - Hook methods (before_create, after_create, etc.)
+  - Exception to HTTP status mapping
+
+---
+
 ## Dependencies
 
 - Python 3.14+
@@ -3640,7 +3917,7 @@ The codebase is designed to be database-agnostic through SQLAlchemy's dialect sy
 
 ## Summary
 
-**All 14 Phases Complete! 🎉**
+**All 15 Phases Complete! 🎉**
 
 DeeBase is now feature-complete with:
 - ✅ **Async/await support** - Modern Python async for FastAPI and other frameworks
@@ -3658,9 +3935,10 @@ DeeBase is now feature-complete with:
 - ✅ **Command-line interface** - Full CLI for project management, schema changes, and migrations
 - ✅ **Migration runner** - Apply/rollback migrations with `migrate up/down` and version tracking
 - ✅ **Database backups** - Timestamped backups via `deebase db backup`
+- ✅ **FastAPI integration** - Auto-generated CRUD routers with FK validation and custom hooks
 - ✅ **Comprehensive error handling** - 6 specific exception types with rich context
 - ✅ **Code generation** - Export database schemas as Python dataclasses
 - ✅ **Complete documentation** - API reference, migration guide, CLI reference, examples
-- ✅ **375 passing tests** - Comprehensive test coverage
+- ✅ **409 passing tests** - Comprehensive test coverage
 
 **Ready for production use!**

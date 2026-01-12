@@ -4,7 +4,7 @@
 
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![SQLAlchemy 2.0+](https://img.shields.io/badge/sqlalchemy-2.0+-green.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/tests-375%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-409%20passing-brightgreen.svg)](#)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#)
 
 DeeBase provides a simple, intuitive interface for async database operations in Python. Built on SQLAlchemy, it combines the ergonomics of [fastlite](https://fastlite.answer.ai/) with full async/await support and multi-database compatibility.
@@ -27,6 +27,7 @@ DeeBase provides a simple, intuitive interface for async database operations in 
 - **📊 Indexes** - Query optimization with named and unique indexes
 - **🖥️ CLI** - Command-line interface for project management
 - **🔄 Migrations** - Database schema migrations with up/down support
+- **🌐 FastAPI Integration** - Auto-generated CRUD routers with FK validation
 
 ## Quick Start
 
@@ -394,6 +395,83 @@ create_mod_from_tables(
 # from models import User, Post, Comment
 ```
 
+## FastAPI Integration
+
+Build REST APIs quickly with auto-generated CRUD routers:
+
+```bash
+# Install API dependencies
+pip install deebase[api]
+# or: uv add deebase[api]
+```
+
+```python
+from dataclasses import dataclass
+from fastapi import FastAPI
+from deebase import Database, ForeignKey
+from deebase.api import create_crud_router
+
+@dataclass
+class User:
+    id: int
+    name: str
+    email: str
+
+@dataclass
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]
+    title: str
+    content: str
+
+app = FastAPI()
+db = Database("sqlite+aiosqlite:///blog.db")
+
+# Auto-generate CRUD endpoints
+app.include_router(create_crud_router(
+    db=db,
+    model_cls=User,
+    prefix="/api/users",
+    tags=["Users"],
+))
+
+# With FK validation (validates author_id exists before insert)
+app.include_router(create_crud_router(
+    db=db,
+    model_cls=Post,
+    prefix="/api/posts",
+    tags=["Posts"],
+    validate_fks=True,
+))
+
+# Generated endpoints:
+# GET    /api/users/      - List all users
+# GET    /api/users/{id}  - Get user by ID
+# POST   /api/users/      - Create user (201)
+# PATCH  /api/users/{id}  - Update user
+# DELETE /api/users/{id}  - Delete user (204)
+```
+
+### Custom Hooks
+
+```python
+from fastapi import HTTPException
+from deebase.api import CRUDRouter
+
+class PostRouter(CRUDRouter):
+    async def before_delete(self, pk) -> None:
+        """Prevent deleting published posts."""
+        table = await self._get_table()
+        post = await table[pk]
+        if post.get('published'):
+            raise HTTPException(400, "Cannot delete published posts")
+
+post_router = PostRouter(db=db, model_cls=Post, prefix="/api/posts", validate_fks=True)
+app.include_router(post_router.router)
+```
+
+See [API Reference](docs/api_reference.md#api-module-fastapi-integration) for full documentation.
+
 ## Command-Line Interface
 
 DeeBase includes a CLI for project management:
@@ -459,7 +537,9 @@ Runnable examples are available in the [`examples/`](examples/) folder:
 - **[phase12_indexes.py](examples/phase12_indexes.py)** - Query optimization with indexes
 - **[phase13_cli.py](examples/phase13_cli.py)** - CLI (demonstrates what CLI does under the hood)
 - **[phase14_migrations.py](examples/phase14_migrations.py)** - Database migrations with MigrationRunner
+- **[phase15_fastapi.py](examples/phase15_fastapi.py)** - FastAPI integration with CRUD routers
 - **[complete_example.py](examples/complete_example.py)** - Full-featured blog showcasing all capabilities
+- **[complete_blog_api_example.py](examples/complete_blog_api_example.py)** - Complete blog REST API with hooks and FK validation
 - **[complete_migrations_example.py](examples/complete_migrations_example.py)** - Full migration workflow with CLI
 
 Run any example:

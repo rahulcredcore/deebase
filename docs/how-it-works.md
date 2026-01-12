@@ -3844,6 +3844,301 @@ async def enable_foreign_keys(self) -> None:
 
 ---
 
+## 11. FastAPI Integration Architecture
+
+DeeBase's API module provides automatic REST API generation from dataclass models. Understanding the architecture helps when customizing endpoints.
+
+### Pydantic Model Generation
+
+The key insight is converting Python `@dataclass` models to FastAPI-compatible Pydantic models:
+
+```python
+# src/deebase/api/models.py
+
+from pydantic import BaseModel, Field, create_model
+from typing import Optional, get_type_hints, get_origin, get_args
+from dataclasses import fields, is_dataclass
+
+def generate_pydantic_models(
+    model_cls: type,
+    pk_field: str = "id",
+    fk_metadata: list[dict] | None = None
+) -> tuple[type[BaseModel], type[BaseModel], type[BaseModel]]:
+    """Generate Create, Update, and Response models from a dataclass."""
+
+    # Extract field info from dataclass
+    type_hints = get_type_hints(model_cls)
+
+    # CreateModel: All fields except PK (auto-generated)
+    # UpdateModel: All fields optional (partial update)
+    # ResponseModel: All fields including PK
+
+    create_fields = {}
+    update_fields = {}
+    response_fields = {}
+
+    for dc_field in fields(model_cls):
+        name = dc_field.name
+        field_type = type_hints.get(name, str)
+
+        # Normalize types (ForeignKey[int, "user"] -> int)
+        actual_type = normalize_type(field_type)
+
+        # Extract description from fastcore.docments if available
+        desc = get_field_description(model_cls, name)
+
+        if name == pk_field:
+            # PK not in CreateModel, required in ResponseModel
+            response_fields[name] = (actual_type, Field(description=desc))
+        else:
+            # Create: required or optional based on default
+            has_default = dc_field.default is not dc_field.default_factory
+            if has_default:
+                create_fields[name] = (Optional[actual_type], Field(default=dc_field.default, description=desc))
+            else:
+                create_fields[name] = (actual_type, Field(description=desc))
+
+            # Update: always optional
+            update_fields[name] = (Optional[actual_type], Field(default=None, description=desc))
+
+            # Response: same as create
+            response_fields[name] = create_fields[name]
+
+    # Create dynamic Pydantic models
+    CreateModel = create_model(f"{model_cls.__name__}Create", **create_fields)
+    UpdateModel = create_model(f"{model_cls.__name__}Update", **update_fields)
+    ResponseModel = create_model(f"{model_cls.__name__}Response", **response_fields)
+
+    return CreateModel, UpdateModel, ResponseModel
+```
+
+### ForeignKey Type Extraction
+
+Foreign key annotations like `ForeignKey[int, "user"]` are runtime-inspectable:
+
+```python
+# src/deebase/api/router.py
+
+def _extract_fk_metadata(self) -> list[dict]:
+    """Extract FK metadata from model class annotations."""
+    from ..types import is_foreign_key, get_foreign_key_info
+
+    fk_metadata = []
+    annotations = getattr(self.model_cls, "__annotations__", {})
+
+    for field_name, field_type in annotations.items():
+        # is_foreign_key checks if it's a _ForeignKeyType instance
+        if is_foreign_key(field_type):
+            # get_foreign_key_info returns (base_type, table, column)
+            _, table, column = get_foreign_key_info(field_type)
+            fk_metadata.append({
+                "column": field_name,
+                "references": f"{table}.{column}"
+            })
+
+    return fk_metadata
+```
+
+### Exception to HTTP Status Mapping
+
+DeeBase exceptions map cleanly to HTTP status codes:
+
+```python
+# src/deebase/api/router.py
+
+EXCEPTION_STATUS_MAP = {
+    "NotFoundError": 404,
+    "IntegrityError": 422,
+    "ValidationError": 422,
+    "ForeignKeyValidationError": 422,
+    "SchemaError": 500,
+    "ConnectionError": 503,
+    "InvalidOperationError": 400,
+}
+
+def _handle_deebase_exception(exc: Exception) -> HTTPException:
+    """Convert DeeBase exception to HTTPException."""
+    status_code = EXCEPTION_STATUS_MAP.get(type(exc).__name__, 500)
+
+    # ForeignKeyValidationError has structured error detail
+    if isinstance(exc, ForeignKeyValidationError):
+        return HTTPException(status_code=status_code, detail=exc.to_dict())
+
+    return HTTPException(status_code=status_code, detail=str(exc))
+```
+
+### HTTPException Pass-Through
+
+Hooks can raise custom `HTTPException` for business logic errors. These must pass through unchanged:
+
+```python
+# src/deebase/api/router.py
+
+async def _create_handler_impl(self, data: BaseModel) -> dict:
+    try:
+        table = await self._get_table()
+        data_dict = data.model_dump(exclude_unset=True)
+
+        # Apply validators, validate FKs, call hooks...
+        data_dict = await self.before_create(data_dict)
+
+        record = await table.insert(data_dict)
+        record = await self.after_create(self._record_to_dict(record))
+        return record
+
+    except HTTPException:
+        # Re-raise HTTP exceptions from hooks unchanged!
+        # Without this, HTTPException(400, "Custom error") becomes 500
+        raise
+    except ForeignKeyValidationError as e:
+        raise _handle_deebase_exception(e)
+    except Exception as e:
+        raise _handle_deebase_exception(e)
+```
+
+**Why this matters:** Hooks are where you add business logic. If a hook raises `HTTPException(status_code=400, detail="Title too short")`, that's exactly what the client should see - not a generic 500 error.
+
+### CRUDRouter Class Design
+
+The router uses hooks for extensibility:
+
+```python
+# src/deebase/api/router.py
+
+class CRUDRouter:
+    """Subclassable CRUD router with lifecycle hooks."""
+
+    # Hook methods - override in subclasses
+    async def before_create(self, data: dict) -> dict:
+        """Modify data before insert."""
+        return data
+
+    async def after_create(self, record: dict) -> dict:
+        """Modify response after insert."""
+        return record
+
+    async def before_update(self, pk: Any, data: dict) -> dict:
+        """Modify data before update."""
+        return data
+
+    async def after_update(self, record: dict) -> dict:
+        """Modify response after update."""
+        return record
+
+    async def before_delete(self, pk: Any) -> None:
+        """Validate before delete (raise HTTPException to prevent)."""
+        pass
+
+    async def after_delete(self, pk: Any) -> None:
+        """Cleanup after delete."""
+        pass
+```
+
+Usage example:
+
+```python
+class PostRouter(CRUDRouter):
+    async def before_create(self, data: dict) -> dict:
+        # Add timestamps
+        data["created_at"] = datetime.now().isoformat()
+        return data
+
+    async def before_delete(self, pk: Any) -> None:
+        # Prevent deleting published posts
+        post = await self.db.t.post[pk]
+        if post.get("published"):
+            raise HTTPException(status_code=400, detail="Cannot delete published posts")
+
+router = PostRouter(db, Post, prefix="/api/posts")
+app.include_router(router.router)
+```
+
+### FK Validation Before Insert/Update
+
+Foreign key validation provides better errors than database constraint failures:
+
+```python
+# src/deebase/api/validators.py
+
+async def validate_foreign_keys(
+    db: "Database",
+    table: "Table",
+    data: dict
+) -> None:
+    """Validate that FK references exist before insert/update."""
+    errors = []
+
+    for fk in table.foreign_keys:
+        column = fk["column"]
+        if column not in data:
+            continue
+
+        value = data[column]
+        if value is None:
+            continue  # Nullable FK, skip validation
+
+        # Parse reference (e.g., "user.id")
+        ref_table, ref_column = fk["references"].split(".")
+
+        # Check if referenced record exists
+        target_table = db._get_table(ref_table)
+        try:
+            await target_table[value]
+        except NotFoundError:
+            errors.append({
+                "field": column,
+                "value": value,
+                "reference": fk["references"],
+                "message": f"Referenced {ref_table} with {ref_column}={value} does not exist"
+            })
+
+    if errors:
+        raise ForeignKeyValidationError(errors)
+```
+
+**Benefit:** Instead of a cryptic "FOREIGN KEY constraint failed" from SQLite, clients get:
+```json
+{
+    "detail": {
+        "errors": [{
+            "field": "author_id",
+            "value": 999,
+            "reference": "user.id",
+            "message": "Referenced user with id=999 does not exist"
+        }]
+    }
+}
+```
+
+### Route Customization Options
+
+Three ways to customize routes:
+
+```python
+# 1. exclude: Disable specific routes
+router = create_crud_router(
+    db, Post,
+    exclude={"delete"}  # No DELETE endpoint
+)
+
+# 2. overrides: Replace route handlers
+async def custom_create(data: PostCreate) -> dict:
+    # Custom implementation
+    ...
+
+router = create_crud_router(
+    db, Post,
+    overrides={"create": custom_create}
+)
+
+# 3. Subclassing: Full control via CRUDRouter subclass
+class PostRouter(CRUDRouter):
+    async def before_create(self, data: dict) -> dict:
+        ...
+```
+
+---
+
 ## Key Takeaways
 
 1. **SQLAlchemy Core, Not ORM**: We use Tables and Columns directly, not ORM models
@@ -3865,6 +4160,10 @@ async def enable_foreign_keys(self) -> None:
 17. **Migration Runner**: Simple Python-based runner with `up()`/`down()` - no Alembic dependency
 18. **Version Tracking**: `_deebase_migrations` table records applied versions with timestamps
 19. **Portable FK Enforcement**: `db.enable_foreign_keys()` works on SQLite (no-op on PostgreSQL)
+20. **Dataclass → Pydantic**: `generate_pydantic_models()` converts dataclass models to FastAPI-compatible Pydantic models
+21. **Exception → HTTPException**: DeeBase exceptions map to appropriate HTTP status codes (404, 422, 500, etc.)
+22. **Hook Pattern**: CRUDRouter hooks (`before_create`, `after_update`, etc.) enable customization without overriding routes
+23. **HTTPException Pass-Through**: Hooks can raise `HTTPException` directly - it passes through unchanged
 
 ## Further Reading
 
@@ -3873,3 +4172,5 @@ async def enable_foreign_keys(self) -> None:
 - [SQLAlchemy Type System](https://docs.sqlalchemy.org/en/20/core/types.html)
 - [SQLAlchemy Dialects](https://docs.sqlalchemy.org/en/20/dialects/)
 - [SQLAlchemy Reflection](https://docs.sqlalchemy.org/en/20/core/reflection.html)
+- [FastAPI Documentation](https://fastapi.tiangolo.com/)
+- [Pydantic Documentation](https://docs.pydantic.dev/)
