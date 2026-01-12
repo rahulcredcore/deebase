@@ -11,6 +11,7 @@ Complete API reference for DeeBase async database library.
 - [Types](#types)
 - [Exceptions](#exceptions)
 - [Utilities](#utilities)
+- [API Module (FastAPI Integration)](#api-module-fastapi-integration)
 
 ---
 
@@ -1322,6 +1323,337 @@ create_mod_from_tables(
     db.t.comments,
     overwrite=True
 )
+```
+
+---
+
+## API Module (FastAPI Integration)
+
+The `deebase.api` module provides FastAPI integration for auto-generating REST CRUD endpoints from dataclass models.
+
+**Installation:** Requires optional API dependencies:
+```bash
+pip install deebase[api]
+# or: uv add deebase[api]
+```
+
+### `create_crud_router()`
+
+Factory function to create a FastAPI router with CRUD endpoints.
+
+```python
+def create_crud_router(
+    db: Database,
+    model_cls: type,
+    prefix: str = "",
+    tags: list[str] = None,
+    pk_field: str = "id",
+    validate_fks: bool = False,
+    validators: dict = None,
+    exclude: set = None,
+    overrides: dict = None,
+) -> APIRouter
+```
+
+**When to use:**
+- Auto-generating REST APIs from dataclass models
+- Rapid API development with consistent CRUD patterns
+- When you want FK validation before database inserts
+- Building admin interfaces or CRUD-heavy applications
+
+**When NOT to use:**
+- Complex business logic (use custom routes instead)
+- Non-standard REST patterns
+- When you need fine-grained control over each endpoint
+
+**Parameters:**
+- `db` (Database): Database instance
+- `model_cls` (type): Dataclass defining the model schema
+- `prefix` (str, optional): URL prefix for routes (e.g., "/api/users")
+- `tags` (list[str], optional): OpenAPI tags for grouping
+- `pk_field` (str, optional): Primary key field name. Defaults to "id".
+- `validate_fks` (bool, optional): Validate FK references exist before insert/update. Defaults to False.
+- `validators` (dict, optional): Custom field validators/transformers
+- `exclude` (set, optional): Route names to exclude: "list", "get", "create", "update", "delete"
+- `overrides` (dict, optional): Override route configurations
+
+**Returns:** `APIRouter` - FastAPI router with CRUD endpoints
+
+**Generated Endpoints:**
+| Method | Path | Operation | Response |
+|--------|------|-----------|----------|
+| GET | `{prefix}/` | List all | `list[Response]` |
+| GET | `{prefix}/{pk}` | Get by PK | `Response` |
+| POST | `{prefix}/` | Create | `Response` (201) |
+| PATCH | `{prefix}/{pk}` | Partial update | `Response` |
+| DELETE | `{prefix}/{pk}` | Delete | 204 No Content |
+
+**Example:**
+```python
+from dataclasses import dataclass
+from fastapi import FastAPI
+from deebase import Database, ForeignKey
+from deebase.api import create_crud_router
+
+@dataclass
+class User:
+    id: int
+    name: str
+    email: str
+
+@dataclass
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]
+    title: str
+    content: str
+
+app = FastAPI()
+db = Database("sqlite+aiosqlite:///app.db")
+
+# Basic router
+app.include_router(create_crud_router(
+    db=db,
+    model_cls=User,
+    prefix="/api/users",
+    tags=["Users"],
+))
+
+# Router with FK validation
+app.include_router(create_crud_router(
+    db=db,
+    model_cls=Post,
+    prefix="/api/posts",
+    tags=["Posts"],
+    validate_fks=True,  # Validates author_id exists before insert
+))
+
+# Router with validators and excluded routes
+app.include_router(create_crud_router(
+    db=db,
+    model_cls=Post,
+    prefix="/api/posts",
+    validators={
+        "title": lambda v: v.strip()[:200] if v else v,
+    },
+    exclude={"delete"},  # No DELETE endpoint
+))
+```
+
+### `CRUDRouter`
+
+Class for creating customizable CRUD routers with hook support.
+
+```python
+class CRUDRouter:
+    def __init__(
+        self,
+        db: Database,
+        model_cls: type,
+        prefix: str = "",
+        tags: list[str] = None,
+        pk_field: str = "id",
+        validate_fks: bool = False,
+        validators: dict = None,
+        exclude: set = None,
+        overrides: dict = None,
+    )
+```
+
+**When to use:**
+- Custom hooks (before_create, after_create, etc.)
+- Business logic in CRUD operations
+- Access control and audit logging
+- Custom validation beyond simple field transforms
+
+**Hook Methods:**
+```python
+class CRUDRouter:
+    async def before_create(self, data: dict) -> dict:
+        """Called before INSERT. Transform or validate data."""
+        return data
+
+    async def after_create(self, record: dict) -> dict:
+        """Called after INSERT. Transform response or trigger side effects."""
+        return record
+
+    async def before_update(self, pk, data: dict) -> dict:
+        """Called before UPDATE. Transform or validate data."""
+        return data
+
+    async def after_update(self, record: dict) -> dict:
+        """Called after UPDATE. Transform response or trigger side effects."""
+        return record
+
+    async def before_delete(self, pk) -> None:
+        """Called before DELETE. Raise HTTPException to block."""
+        pass
+
+    async def after_delete(self, pk) -> None:
+        """Called after DELETE. Trigger side effects."""
+        pass
+```
+
+**Example with custom hooks:**
+```python
+from fastapi import HTTPException
+from deebase.api import CRUDRouter
+
+class PostRouter(CRUDRouter):
+    async def before_create(self, data: dict) -> dict:
+        # Auto-generate slug
+        if 'title' in data and 'slug' not in data:
+            data['slug'] = data['title'].lower().replace(' ', '-')
+        return data
+
+    async def before_delete(self, pk) -> None:
+        # Block deleting published posts
+        table = await self._get_table()
+        post = await table[pk]
+        if post.get('published'):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete published posts"
+            )
+
+app = FastAPI()
+post_router = PostRouter(
+    db=db,
+    model_cls=Post,
+    prefix="/api/posts",
+    tags=["Posts"],
+)
+app.include_router(post_router.router)
+```
+
+### `ForeignKeyValidationError`
+
+Exception raised when FK validation fails before insert/update.
+
+```python
+from deebase.api import ForeignKeyValidationError
+
+# Error structure
+error = ForeignKeyValidationError([
+    {
+        "field": "author_id",
+        "value": 999,
+        "message": "Referenced user with id=999 does not exist"
+    }
+])
+
+# Convert to dict for HTTP response
+error.to_dict()
+# {'type': 'foreign_key_validation_error', 'errors': [...]}
+```
+
+**HTTP Response (422):**
+```json
+{
+    "detail": {
+        "type": "foreign_key_validation_error",
+        "errors": [
+            {
+                "field": "author_id",
+                "value": 999,
+                "message": "Referenced user with id=999 does not exist"
+            }
+        ]
+    }
+}
+```
+
+### Exception to HTTP Status Mapping
+
+The API module automatically maps DeeBase exceptions to HTTP status codes:
+
+| Exception | HTTP Status | Description |
+|-----------|-------------|-------------|
+| `NotFoundError` | 404 | Record not found |
+| `IntegrityError` | 422 | Database constraint violation |
+| `ValidationError` | 422 | Data validation failed |
+| `ForeignKeyValidationError` | 422 | FK reference doesn't exist |
+| `InvalidOperationError` | 400 | Invalid operation (e.g., write to view) |
+| `ConnectionError` | 503 | Database connection failed |
+| Other exceptions | 500 | Internal server error |
+
+### Pydantic Model Generation
+
+The router automatically generates Pydantic models from your dataclass:
+
+- **CreateModel**: All fields except PK, required fields enforced
+- **UpdateModel**: All fields optional (for partial updates)
+- **ResponseModel**: All fields including PK
+
+Field descriptions from `fastcore.docments()` style comments are included in OpenAPI docs:
+
+```python
+@dataclass
+class User:
+    id: int           # Auto-generated user ID
+    name: str         # Display name
+    email: str        # Email address (unique)
+    status: str = "active"  # Account status
+```
+
+### Complete Example
+
+```python
+from dataclasses import dataclass
+from typing import Optional
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException
+from deebase import Database, ForeignKey, Text
+from deebase.api import CRUDRouter, create_crud_router
+
+@dataclass
+class User:
+    id: int
+    name: str
+    email: str
+    status: str = "active"
+
+@dataclass
+class Post:
+    id: int
+    author_id: ForeignKey[int, "user"]
+    title: str
+    content: Text
+    published: bool = False
+
+class PostRouter(CRUDRouter):
+    async def before_delete(self, pk) -> None:
+        table = await self._get_table()
+        post = await table[pk]
+        if post.get('published'):
+            raise HTTPException(400, "Cannot delete published posts")
+
+db = Database("sqlite+aiosqlite:///blog.db")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await db.create(User, pk="id", if_not_exists=True)
+    await db.create(Post, pk="id", if_not_exists=True)
+    await db.enable_foreign_keys()
+    yield
+    await db.close()
+
+app = FastAPI(lifespan=lifespan)
+
+app.include_router(create_crud_router(
+    db=db, model_cls=User,
+    prefix="/api/users", tags=["Users"],
+))
+
+post_router = PostRouter(
+    db=db, model_cls=Post,
+    prefix="/api/posts", tags=["Posts"],
+    validate_fks=True,
+)
+app.include_router(post_router.router)
+
+# Run: uvicorn app:app --reload
+# Docs: http://localhost:8000/docs
 ```
 
 ---

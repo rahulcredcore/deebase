@@ -1,7 +1,7 @@
 """
 Complete Example: Building a Blog Database
 
-This example showcases ALL DeeBase capabilities from Phases 1-12:
+This example showcases DeeBase core capabilities from Phases 1-12:
 - Phase 1: Raw SQL queries
 - Phase 2: Table creation from Python classes
 - Phase 3: CRUD operations with rich types
@@ -14,6 +14,8 @@ This example showcases ALL DeeBase capabilities from Phases 1-12:
 - Phase 10: Foreign keys and default values
 - Phase 11: FK relationship navigation
 - Phase 12: Indexes for query optimization
+
+For FastAPI integration (Phase 15), see: complete_blog_api_example.py
 """
 
 import asyncio
@@ -514,7 +516,8 @@ async def main():
 
     print("=" * 70)
     print("Complete example finished successfully!")
-    print("All 12 phases demonstrated.")
+    print("Core features (Phases 1-12) demonstrated.")
+    print("For FastAPI integration (Phase 15), see: complete_blog_api_example.py")
     print("=" * 70)
 
 
