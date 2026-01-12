@@ -713,22 +713,30 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 
 ## Development Workflow
 
-When implementing a new phase, follow this workflow:
+When implementing a new phase or feature, follow this workflow:
 
-### 1. Planning
+### 1. Create Feature Branch
+```bash
+# Create and checkout a new branch for the feature/phase
+git checkout -b feature/phase-N-description
+# or
+git checkout -b feature/descriptive-name
+```
+
+### 2. Planning
 - Extract phase plans from `docs/phase12_future.md` (or create new)
 - Get user approval on the plan
 - Add approved plan to `docs/implementation_plan.md`
 
-### 2. Implementation
+### 3. Implementation
 - Implement the feature in relevant source files
 - Write tests in `tests/`
 
-### 3. Testing
+### 4. Testing
 - Run `uv run pytest` - ensure all tests pass
 - Run all examples to verify no regressions
 
-### 4. Documentation Updates (one by one)
+### 5. Documentation Updates (one by one)
 Update each documentation file:
 1. `examples/phaseN_*.py` - Create phase example
 2. `examples/complete_example.py` - Add new feature showcase
@@ -741,9 +749,34 @@ Update each documentation file:
 9. `README.md` - User-facing documentation
 10. `CLAUDE.md` - Developer context
 
-### 5. Finalize
-- Run all tests and examples one final time
-- `git add && git commit && git push`
+### 6. Finalize & Create Pull Request
+```bash
+# Run all tests and examples one final time
+uv run pytest
+# Run all phase examples
+for file in examples/phase*.py examples/complete_example.py; do uv run $file; done
+
+# Commit all changes to the feature branch
+git add .
+git commit -m "Phase N: Description of changes"
+git push -u origin feature/phase-N-description
+
+# Create pull request against main branch
+gh pr create --base main --title "Phase N: Description" --body "## Summary
+- Key change 1
+- Key change 2
+
+## Test plan
+- [ ] All tests pass
+- [ ] All examples run successfully"
+```
+
+After the PR is approved and merged, delete the feature branch:
+```bash
+git checkout main
+git pull
+git branch -d feature/phase-N-description
+```
 
 ## Build & Publish
 
