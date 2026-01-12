@@ -213,13 +213,31 @@ This demo API has no authentication. In production, add OAuth2 or JWT.
     )
     app.include_router(post_router.router)
 
-    # Comments - with FK validation and approval workflow
+    # Comments - with FK validation, approval workflow, and custom list handler
+    # Demonstrates using 'overrides' to replace specific route handlers
+    from fastapi import Query
+
+    async def custom_comments_list(
+        limit: int | None = Query(None, ge=1, le=100),
+        approved_only: bool = Query(False, description="Only show approved comments")
+    ):
+        """Custom list handler that adds filtering for approved comments."""
+        comments_table = db.t.comment
+        all_comments = await comments_table(limit=limit)
+        if approved_only:
+            # Filter to only approved comments
+            return [c for c in all_comments if (c.get("approved") if isinstance(c, dict) else c.approved)]
+        return all_comments
+
     app.include_router(create_crud_router(
         db=db,
         model_cls=Comment,
         prefix="/api/comments",
         tags=["Comments"],
         validate_fks=True,  # Validate post_id exists
+        overrides={
+            "list": custom_comments_list,  # Override list to add approved_only filter
+        },
     ))
 
     # ========================================================================

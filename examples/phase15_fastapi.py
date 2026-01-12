@@ -176,11 +176,16 @@ async def main():
     print("  - before_delete: validates deletion")
 
     # =========================================================
-    # Part 5: Route Customization
+    # Part 5: Route Customization (3 Methods)
     # =========================================================
-    print("\n--- Part 5: Route Customization ---\n")
+    print("\n--- Part 5: Route Customization (3 Methods) ---\n")
 
-    # Exclude certain routes
+    # ---------------------------------------------------------
+    # Method 1: exclude parameter - Remove specific routes
+    # ---------------------------------------------------------
+    print("Method 1: exclude parameter - Remove specific routes")
+    print("-" * 50)
+
     readonly_router = create_crud_router(
         db=db,
         model_cls=User,
@@ -189,6 +194,120 @@ async def main():
     )
     print("Created read-only router (excluded: create, update, delete)")
     print(f"Routes available: {len(list(readonly_router.routes))}")
+
+    # ---------------------------------------------------------
+    # Method 2: overrides parameter - Replace route handlers
+    # ---------------------------------------------------------
+    print("\nMethod 2: overrides parameter - Replace route handlers")
+    print("-" * 50)
+
+    from fastapi import Query
+
+    # Custom handlers for overriding
+    async def custom_list(limit: int | None = Query(None, ge=1, le=100)):
+        """Custom list handler - only returns active users."""
+        table = db.t.user
+        all_users = await table(limit=limit)
+        # Filter to only active users
+        return [u for u in all_users if (u.get("status") if isinstance(u, dict) else u.status) == "active"]
+
+    async def custom_get(pk):
+        """Custom get handler - adds extra info."""
+        table = db.t.user
+        record = await table[pk]
+        # Convert to dict and add extra field
+        result = record if isinstance(record, dict) else {"id": record.id, "name": record.name, "email": record.email, "status": record.status}
+        result["fetched_at"] = "2024-01-01T00:00:00Z"  # Simulated timestamp
+        return result
+
+    overrides_router = create_crud_router(
+        db=db,
+        model_cls=User,
+        prefix="/api/custom-users",
+        overrides={
+            "list": custom_list,    # Replace list handler
+            "get": custom_get,      # Replace get handler
+        },
+    )
+    print("Created router with overridden handlers:")
+    print("  - list: Only returns active users")
+    print("  - get: Adds fetched_at timestamp to response")
+
+    # ---------------------------------------------------------
+    # Method 3: CRUDRouter subclass - Full control with hooks
+    # ---------------------------------------------------------
+    print("\nMethod 3: CRUDRouter subclass - Full control with hooks")
+    print("-" * 50)
+
+    class AdvancedUserRouter(CRUDRouter):
+        """Advanced router with full customization."""
+
+        async def before_create(self, data: dict) -> dict:
+            """Validate and transform data before insert."""
+            # Add default status if not provided
+            if "status" not in data:
+                data["status"] = "pending"
+            # Normalize email
+            if "email" in data:
+                data["email"] = data["email"].lower().strip()
+            print(f"    [Hook] before_create: normalized email, set status")
+            return data
+
+        async def after_create(self, record: dict) -> dict:
+            """Actions after insert (e.g., send welcome email)."""
+            print(f"    [Hook] after_create: would send welcome email to {record.get('email')}")
+            return record
+
+        async def before_update(self, pk, data: dict) -> dict:
+            """Validate update data."""
+            if "email" in data:
+                data["email"] = data["email"].lower().strip()
+            print(f"    [Hook] before_update: validated update for pk={pk}")
+            return data
+
+        async def after_update(self, record: dict) -> dict:
+            """Actions after update."""
+            print(f"    [Hook] after_update: record {record.get('id')} updated")
+            return record
+
+        async def before_delete(self, pk) -> None:
+            """Validate deletion (e.g., check if user has posts)."""
+            print(f"    [Hook] before_delete: checking if user {pk} can be deleted")
+            # Could raise HTTPException to prevent deletion
+
+        async def after_delete(self, pk) -> None:
+            """Cleanup after deletion."""
+            print(f"    [Hook] after_delete: cleanup for user {pk}")
+
+    advanced_router = AdvancedUserRouter(
+        db=db,
+        model_cls=User,
+        prefix="/api/advanced-users",
+        tags=["Advanced Users"],
+    )
+    print("Created AdvancedUserRouter with all hooks:")
+    print("  - before_create: normalize email, set default status")
+    print("  - after_create: send welcome email")
+    print("  - before_update: validate update data")
+    print("  - after_update: log update")
+    print("  - before_delete: check dependencies")
+    print("  - after_delete: cleanup")
+
+    # ---------------------------------------------------------
+    # Summary: When to use each method
+    # ---------------------------------------------------------
+    print("\nSummary: When to use each method")
+    print("-" * 50)
+    print("""
+  exclude:    Quick way to remove routes you don't need
+              Example: exclude={"delete"} for non-deletable resources
+
+  overrides:  Replace specific handlers with custom functions
+              Example: overrides={"list": custom_list_with_filters}
+
+  CRUDRouter: Full control - modify data before/after operations
+              Example: Add audit fields, send notifications, validate business rules
+""")
 
     # =========================================================
     # Part 6: Exception Mapping

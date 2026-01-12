@@ -1375,9 +1375,38 @@ def create_crud_router(
 - `validate_fks` (bool, optional): Validate FK references exist before insert/update. Defaults to False.
 - `validators` (dict, optional): Custom field validators/transformers
 - `exclude` (set, optional): Route names to exclude: "list", "get", "create", "update", "delete"
-- `overrides` (dict, optional): Override route configurations
+- `overrides` (dict, optional): Custom route handlers to replace defaults. Keys: "list", "get", "create", "update", "delete"
 
 **Returns:** `APIRouter` - FastAPI router with CRUD endpoints
+
+**Route Customization (3 Methods):**
+
+See [FastAPI Guide](fastapi_guide.md#route-customization) for complete documentation.
+
+1. **`exclude`** - Remove routes:
+```python
+exclude={"delete"}  # No DELETE endpoint
+```
+
+2. **`overrides`** - Replace handlers with custom functions:
+```python
+from fastapi import Query
+
+async def custom_list(limit: int | None = Query(None)):
+    """Custom list that filters active users only."""
+    users = await db.t.user(limit=limit)
+    return [u for u in users if u.status == "active"]
+
+create_crud_router(db, User, overrides={"list": custom_list})
+```
+
+3. **`CRUDRouter` subclass** - Full control with hooks:
+```python
+class AuditRouter(CRUDRouter):
+    async def before_create(self, data: dict) -> dict:
+        data["created_at"] = datetime.now().isoformat()
+        return data
+```
 
 **Generated Endpoints:**
 | Method | Path | Operation | Response |

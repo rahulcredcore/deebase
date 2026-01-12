@@ -724,6 +724,7 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 **Full Documentation:**
 - **[docs/api_reference.md](docs/api_reference.md)** - Complete API documentation with "When to Use" guidance
 - **[docs/cli_reference.md](docs/cli_reference.md)** - CLI commands reference with "When to Use" guidance
+- **[docs/fastapi_guide.md](docs/fastapi_guide.md)** - FastAPI integration guide (CRUD routers, route customization, hooks)
 - **[docs/best-practices.md](docs/best-practices.md)** - Design decisions and patterns (dict vs dataclass, CLI vs API, reflection)
 - **[docs/implemented.md](docs/implemented.md)** - User guide showing what works at each phase
 - **[docs/migrating_from_fastlite.md](docs/migrating_from_fastlite.md)** - Migration guide from fastlite
@@ -767,9 +768,10 @@ Update each documentation file (ALL are important - don't skip any):
 6. `docs/best-practices.md` - Design decisions and patterns
 7. `docs/types_reference.md` - If new types added (including API types for FastAPI)
 8. `docs/how-it-works.md` - Technical internals (SQLAlchemy implementation details)
-9. `docs/implementation_plan.md` - Mark phase as complete, update deliverables
-10. `README.md` - User-facing documentation
-11. `CLAUDE.md` - Developer context and phase status
+9. `docs/fastapi_guide.md` - FastAPI integration guide (if API changes)
+10. `docs/implementation_plan.md` - Mark phase as complete, update deliverables
+11. `README.md` - User-facing documentation
+12. `CLAUDE.md` - Developer context and phase status
 
 ### 6. Finalize & Create Pull Request
 ```bash
