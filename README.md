@@ -4,7 +4,7 @@
 
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![SQLAlchemy 2.0+](https://img.shields.io/badge/sqlalchemy-2.0+-green.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/tests-508%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-539%20passing-brightgreen.svg)](#)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#)
 
 DeeBase provides a simple, intuitive interface for async database operations in Python. Built on SQLAlchemy, it combines the ergonomics of [fastlite](https://fastlite.answer.ai/) with full async/await support and multi-database compatibility.
@@ -42,6 +42,8 @@ Define your models, get a full CRUD API with Swagger documentation:
 Manage your data through a built-in admin UI at `/admin/`:
 
 ![Admin Dashboard](docs/admin-dashboard.png)
+
+![Admin List View](docs/admin-list-view.png)
 
 ## Quick Start
 
@@ -746,7 +748,7 @@ uv run pytest --cov=src/deebase --cov-report=html
 uv run pytest tests/test_crud.py -v
 ```
 
-All 508 tests passing ✅
+All 539 tests passing ✅
 
 ### Project Structure
 

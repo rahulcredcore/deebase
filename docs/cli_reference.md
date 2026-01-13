@@ -1097,10 +1097,14 @@ INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
 **Admin Interface Features:**
 - Dashboard listing all tables
 - List view with pagination for each table
+- Detail view with type-based rendering (Phase 17)
 - Create form with FK dropdowns populated from parent tables
 - Edit form for updating records
 - Delete confirmation page
 - Automatic validation using project validators
+- Custom display functions via `displays/` directory (Phase 17)
+
+![Admin List View](admin-list-view.png)
 
 > **Note:** The admin interface uses database reflection to discover tables. You do NOT need to run `api generate` for the admin - just `api init` then `api serve --admin`.
 

@@ -455,10 +455,20 @@ Browse records with clickable rows that navigate to detail view:
 
 Read-only view of a record with Edit/Delete buttons:
 
+![Admin Detail View](admin-detail-view.png)
+
 - JSON fields rendered as formatted `<pre>` blocks
 - TEXT fields preserve line breaks
 - Boolean fields shown as styled "Yes" / "No"
 - NULL values shown with "—" marker
+
+**JSON Rendering Close-up:**
+
+![Admin JSON Rendering](admin-json-rendering.png)
+
+**Custom Display Example (red username):**
+
+![Admin Custom Display](admin-custom-display.png)
 
 #### Edit Form with FK Dropdown
 

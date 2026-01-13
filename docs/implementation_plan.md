@@ -3444,7 +3444,7 @@ No new dependencies required - Jinja2 is already in the `[api]` extra.
 
 ### Phase 17: Admin UI Enhancements
 
-**Status:** Planned
+**Status:** Ongoing
 
 **Goal:** Improve admin interface with read-only detail views, clickable rows, and customizable field rendering.
 
@@ -3598,6 +3598,7 @@ def _load_custom_display(table_name: str, field_name: str):
 #### Part 4: Template Updates
 
 **view.html (new):**
+{% raw %}
 ```html
 {% extends "base.html" %}
 
@@ -3630,6 +3631,7 @@ def _load_custom_display(table_name: str, field_name: str):
 </div>
 {% endblock %}
 ```
+{% endraw %}
 
 #### Documentation Updates
 

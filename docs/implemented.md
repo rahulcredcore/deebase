@@ -4029,9 +4029,12 @@ deebase api serve --admin
 #   Dashboard:     http://127.0.0.1:8000/admin/
 #   Table list:    http://127.0.0.1:8000/admin/users/
 #   Create form:   http://127.0.0.1:8000/admin/users/new
-#   Edit form:     http://127.0.0.1:8000/admin/users/1
+#   Detail view:   http://127.0.0.1:8000/admin/users/1
+#   Edit form:     http://127.0.0.1:8000/admin/users/1/edit
 #   Delete:        http://127.0.0.1:8000/admin/users/1/delete
 ```
+
+![Admin List View](admin-list-view.png)
 
 **Admin Features:**
 - Dashboard listing all tables
@@ -4095,6 +4098,70 @@ app.include_router(create_admin_router(db))
 
 ---
 
+## Phase 17: Admin UI Enhancements 🔄 ONGOING
+
+Phase 17 enhances the admin interface with read-only detail views, type-based field rendering, and custom display functions.
+
+### Read-Only Detail View
+
+The admin now has a dedicated read-only detail view at `/{table}/{pk}`:
+
+```bash
+# URL structure
+/admin/users/1        # Read-only detail view
+/admin/users/1/edit   # Edit form (moved from /admin/users/1)
+/admin/users/1/delete # Delete confirmation
+```
+
+![Admin Detail View](admin-detail-view.png)
+
+### Type-Based Field Renderers
+
+Fields are automatically rendered based on their database type:
+
+| Column Type | Rendering |
+|-------------|-----------|
+| JSON | Formatted `<pre>` block |
+| TEXT | Preserves newlines with `<br>` |
+| BOOLEAN | Styled "Yes" / "No" |
+| INTEGER | Monospace font |
+| DATETIME | Formatted timestamp |
+| NULL | Em dash (—) marker |
+
+![Admin JSON Rendering](admin-json-rendering.png)
+
+### Custom Display Functions
+
+Create custom renderers in `displays/{table_name}.py`:
+
+```python
+# displays/users.py
+import html
+
+def render_username(value, record):
+    """Render username in red."""
+    if value is None:
+        return '<span class="null">—</span>'
+    escaped = html.escape(str(value))
+    return f'<span style="color: #dc2626; font-weight: 600;">{escaped}</span>'
+
+DISPLAYS = {"username": render_username}
+```
+
+![Admin Custom Display](admin-custom-display.png)
+
+**Phase 17 Deliverables:**
+- ✅ Read-only detail view at `/{table}/{pk}`
+- ✅ Edit form moved to `/{table}/{pk}/edit`
+- ✅ Clickable rows in list view
+- ✅ Type-based field renderers (`deebase.admin.renderers`)
+- ✅ Custom display functions via `displays/` directory
+- ✅ `deebase init` creates `displays/` scaffold
+- ✅ 31 new admin tests (539 total passing)
+- ✅ Documentation with screenshots
+
+---
+
 ## Dependencies
 
 - Python 3.14+
@@ -4117,9 +4184,9 @@ The codebase is designed to be database-agnostic through SQLAlchemy's dialect sy
 
 ## Summary
 
-**All 16 Phases Complete! 🎉**
+**All 16 Phases Complete + Phase 17 Ongoing! 🎉**
 
-DeeBase is now feature-complete with:
+DeeBase is production-ready with:
 - ✅ **Async/await support** - Modern Python async for FastAPI and other frameworks
 - ✅ **Ergonomic API** - Simple, intuitive operations inspired by fastlite
 - ✅ **Type safety** - Optional dataclass support for IDE autocomplete
@@ -4139,9 +4206,10 @@ DeeBase is now feature-complete with:
 - ✅ **Validation layer** - Shared validators used by CLI, admin, and API
 - ✅ **Admin interface** - Django-like admin UI at `/admin/`
 - ✅ **CLI data commands** - CRUD from the terminal with `deebase data`
+- ✅ **Admin enhancements** - Read-only detail views, type-based renderers, custom displays (Phase 17)
 - ✅ **Comprehensive error handling** - 6 specific exception types with rich context
 - ✅ **Code generation** - Export database schemas as Python dataclasses
 - ✅ **Complete documentation** - API reference, migration guide, CLI reference, examples
-- ✅ **494 passing tests** - Comprehensive test coverage
+- ✅ **539 passing tests** - Comprehensive test coverage
 
 **Ready for production use!**
