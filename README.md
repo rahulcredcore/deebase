@@ -4,7 +4,7 @@
 
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![SQLAlchemy 2.0+](https://img.shields.io/badge/sqlalchemy-2.0+-green.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/tests-409%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-439%20passing-brightgreen.svg)](#)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#)
 
 DeeBase provides a simple, intuitive interface for async database operations in Python. Built on SQLAlchemy, it combines the ergonomics of [fastlite](https://fastlite.answer.ai/) with full async/await support and multi-database compatibility.
@@ -28,6 +28,8 @@ DeeBase provides a simple, intuitive interface for async database operations in 
 - **🖥️ CLI** - Command-line interface for project management
 - **🔄 Migrations** - Database schema migrations with up/down support
 - **🌐 FastAPI Integration** - Auto-generated CRUD routers with FK validation
+- **✅ Validation** - Shared validation layer for CLI, admin, and API
+- **🔧 Admin Interface** - Django-like admin UI at `/admin/`
 
 ## Quick Start
 
@@ -521,6 +523,16 @@ deebase migrate down --to 1 -y  # Rollback to version 1
 # Database backup
 deebase db backup               # Create timestamped backup
 deebase db backup --output ./backups/
+
+# Data management (CRUD from terminal)
+deebase data list users                  # List records
+deebase data insert users -f name=Alice -f email=alice@example.com
+deebase data get users 1                 # Get by PK
+deebase data update users 1 -f status=inactive
+deebase data delete users 1 -y           # Delete (skip confirm)
+
+# Admin interface
+deebase api serve --admin       # Start with admin at /admin/
 ```
 
 See `deebase --help` for all commands.
@@ -544,7 +556,9 @@ Runnable examples are available in the [`examples/`](examples/) folder:
 - **[phase13_cli.py](examples/phase13_cli.py)** - CLI (demonstrates what CLI does under the hood)
 - **[phase14_migrations.py](examples/phase14_migrations.py)** - Database migrations with MigrationRunner
 - **[phase15_fastapi.py](examples/phase15_fastapi.py)** - FastAPI integration with CRUD routers
+- **[phase16_data_admin.py](examples/phase16_data_admin.py)** - Validation layer and admin interface
 - **[complete_example.py](examples/complete_example.py)** - Full-featured blog showcasing all capabilities
+- **[complete_example_with_validation.py](examples/complete_example_with_validation.py)** - Blog with validation layer
 - **[complete_cli_example.py](examples/complete_cli_example.py)** - End-to-end CLI workflow for building a blog
 - **[complete_blog_api_example.py](examples/complete_blog_api_example.py)** - Complete blog REST API with hooks and FK validation
 - **[complete_migrations_example.py](examples/complete_migrations_example.py)** - Full migration workflow with CLI
@@ -691,7 +705,7 @@ uv run pytest --cov=src/deebase --cov-report=html
 uv run pytest tests/test_crud.py -v
 ```
 
-All 409 tests passing ✅
+All 439 tests passing ✅
 
 ### Project Structure
 
@@ -744,7 +758,7 @@ DeeBase follows these principles:
 
 ## Status
 
-**All 15 development phases complete! Ready for production use.**
+**All 16 development phases complete! Ready for production use.**
 
 - ✅ Phase 1: Core Infrastructure
 - ✅ Phase 2: Table Creation & Schema
@@ -761,7 +775,7 @@ DeeBase follows these principles:
 - ✅ Phase 13: Command-Line Interface
 - ✅ Phase 14: Migrations
 - ✅ Phase 15: FastAPI Integration
-- 🚧 Phase 16: Data Management & Admin (Planned)
+- ✅ Phase 16: Data Management & Admin Interface
 
 See [Implementation Plan](docs/implementation_plan.md) for details.
 

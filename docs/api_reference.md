@@ -12,6 +12,7 @@ Complete API reference for DeeBase async database library.
 - [Exceptions](#exceptions)
 - [Utilities](#utilities)
 - [API Module (FastAPI Integration)](#api-module-fastapi-integration)
+- [Validation Module](#validation-module)
 
 ---
 
@@ -1887,6 +1888,223 @@ await articles.create_index("created_at")
 
 # Drop index
 await articles.drop_index("ix_article_created_at")
+```
+
+---
+
+## Validation Module
+
+The validation module (`deebase.validation`) provides shared validation utilities used by CLI data commands, the admin interface, and the API module. These are opt-in utilities - the core Table class does NOT use them automatically.
+
+### apply_validators()
+
+```python
+def apply_validators(
+    data: dict[str, Any],
+    validators: dict[str, Callable[[Any], Any]] | None
+) -> dict[str, Any]
+```
+
+Apply field validators/transformers to data.
+
+**When to use:**
+- Normalizing user input (trim whitespace, lowercase emails)
+- Validating field values before database operations
+- Transforming data in CLI commands or API endpoints
+
+**Parameters:**
+- `data` (dict): Record data to validate
+- `validators` (dict): Mapping of field name → validator function
+
+**Returns:** Validated (possibly transformed) data dict
+
+**Raises:** `ValidationError` if any validator fails
+
+**Example:**
+```python
+from deebase import apply_validators, ValidationError
+
+validators = {
+    "email": lambda v: v.lower().strip() if v else v,
+    "name": lambda v: v.strip() if v else v,
+}
+
+# Transform data
+data = {"email": "ALICE@EXAMPLE.COM", "name": "  Alice  "}
+result = apply_validators(data, validators)
+# result = {"email": "alice@example.com", "name": "Alice"}
+
+# Validation error
+def validate_email(v):
+    if "@" not in v:
+        raise ValueError("Invalid email format")
+    return v.lower()
+
+try:
+    apply_validators({"email": "invalid"}, {"email": validate_email})
+except ValidationError as e:
+    print(e.errors)  # [{"field": "email", "message": "Invalid email format"}]
+```
+
+### apply_validators_async()
+
+```python
+async def apply_validators_async(
+    data: dict[str, Any],
+    validators: dict[str, Callable[[Any], Any]] | None
+) -> dict[str, Any]
+```
+
+Like `apply_validators()` but supports async validator functions.
+
+**When to use:**
+- Validators that need database lookups
+- Validators that call external APIs
+- Any validator that needs to be async
+
+**Example:**
+```python
+from deebase import apply_validators_async
+
+async def validate_unique_email(email: str) -> str:
+    existing = await users.lookup(email=email)
+    if existing:
+        raise ValueError("Email already exists")
+    return email.lower()
+
+validators = {"email": validate_unique_email}
+result = await apply_validators_async(data, validators)
+```
+
+### validate_foreign_keys()
+
+```python
+async def validate_foreign_keys(
+    db: Database,
+    table: Table,
+    data: dict[str, Any]
+) -> None
+```
+
+Validate that FK references exist before insert/update.
+
+**When to use:**
+- Before inserting records with foreign keys
+- Provides clearer error messages than database constraint failures
+- Used automatically by `ValidatedTable` and API routers
+
+**Parameters:**
+- `db`: Database instance for looking up referenced tables
+- `table`: Table being inserted/updated
+- `data`: Record data to validate
+
+**Raises:** `ForeignKeyValidationError` if any FK reference doesn't exist
+
+**Example:**
+```python
+from deebase import validate_foreign_keys, ForeignKeyValidationError
+
+try:
+    await validate_foreign_keys(db, posts, {"author_id": 999, "title": "Test"})
+except ForeignKeyValidationError as e:
+    print(e.errors)
+    # [{"field": "author_id", "value": 999, "message": "Referenced user with id=999 does not exist"}]
+```
+
+### ValidatedTable
+
+```python
+class ValidatedTable:
+    def __init__(
+        self,
+        table: Table,
+        validators: dict[str, Callable[[Any], Any]] | None = None,
+        validate_fks: bool = True
+    )
+```
+
+A wrapper that adds automatic validation to Table write operations. All read operations pass through unchanged.
+
+**When to use:**
+- Adding validation to existing tables without modifying Table class
+- Enforcing business rules on writes
+- Combining field validators with FK validation
+
+**Parameters:**
+- `table`: Table instance to wrap
+- `validators`: Dict of field name → validator function
+- `validate_fks`: Whether to validate FK references exist (default: True)
+
+**Write Operations (with validation):**
+- `insert(data)` - Validates, then inserts
+- `update(data)` - Validates, then updates
+- `upsert(data)` - Validates, then upserts
+- `delete(pk)` - Passes through (no validation needed)
+
+**Read Operations (passthrough):**
+- `__call__(limit, with_pk)` - Select records
+- `__getitem__(pk)` - Get by primary key
+- `lookup(**kwargs)` - Look up by column values
+
+**Properties (passthrough):**
+- `schema`, `foreign_keys`, `indexes`, `fk`, `name`, `sa_table`
+
+**Methods:**
+- `xtra(**kwargs)` - Returns new ValidatedTable with same validators
+- `dataclass()` - Get or generate dataclass
+- `get_parent()`, `get_children()` - FK navigation
+- `create_index()`, `drop_index()` - Index management
+
+**Example:**
+```python
+from deebase import ValidatedTable
+
+# Define validators
+validators = {
+    "email": lambda v: v.lower().strip() if v else v,
+    "name": lambda v: v.strip() if v else v,
+}
+
+# Wrap table with validation
+vusers = ValidatedTable(users, validators=validators, validate_fks=True)
+
+# Insert through ValidatedTable - validation happens automatically
+user = await vusers.insert({
+    "name": "  Alice  ",  # Will be trimmed
+    "email": "ALICE@EXAMPLE.COM",  # Will be lowercased
+})
+# user = {"id": 1, "name": "Alice", "email": "alice@example.com"}
+
+# Read operations work unchanged
+all_users = await vusers()
+user = await vusers[1]
+
+# xtra() returns ValidatedTable with same validators
+active_vusers = vusers.xtra(status="active")
+# active_vusers is still a ValidatedTable
+```
+
+### ForeignKeyValidationError
+
+```python
+class ForeignKeyValidationError(DeeBaseError):
+    def __init__(self, errors: list[dict[str, Any]])
+```
+
+Exception raised when FK validation fails.
+
+**Attributes:**
+- `errors` (list): List of error dicts with `field`, `value`, `message` keys
+
+**Example:**
+```python
+from deebase import ForeignKeyValidationError
+
+try:
+    await validate_foreign_keys(db, posts, {"author_id": 999})
+except ForeignKeyValidationError as e:
+    for error in e.errors:
+        print(f"Field {error['field']}: {error['message']}")
 ```
 
 ---

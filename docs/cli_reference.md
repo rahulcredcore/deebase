@@ -15,6 +15,7 @@ This document provides a complete reference for the DeeBase command-line interfa
   - [sql](#sql)
   - [codegen](#codegen)
   - [migrate](#migrate)
+  - [data](#data)
   - [api](#api)
 - [Configuration](#configuration)
 - [Migration Workflow](#migration-workflow)
@@ -782,6 +783,190 @@ deebase migrate new "add comments table"
 
 ---
 
+### data
+
+Data management commands for CRUD operations from the command line.
+
+#### data insert
+
+Insert records into a table.
+
+```bash
+deebase data insert TABLE [OPTIONS]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `TABLE` | Table name to insert into |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-f, --field FIELD=VALUE` | Field value (repeatable) |
+| `-j, --json JSON` | JSON object with record data |
+| `-F, --from-file FILE` | JSON file for batch import |
+
+**Examples:**
+
+```bash
+# Insert with field options
+deebase data insert users -f name=Alice -f email=alice@example.com
+
+# Insert with JSON
+deebase data insert users -j '{"name": "Bob", "email": "bob@example.com"}'
+
+# Batch import from file
+deebase data insert users -F users.json
+```
+
+**When to use:**
+- Quick data entry without writing Python code
+- Importing data from JSON files
+- Scripting database population
+
+#### data list
+
+List records from a table.
+
+```bash
+deebase data list TABLE [OPTIONS]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `TABLE` | Table name to list from |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--format FORMAT` | Output format: table, json, csv (default: table) |
+| `--limit N` | Limit number of records |
+
+**Examples:**
+
+```bash
+# Table format (default)
+deebase data list users
+
+# JSON format
+deebase data list users --format json
+
+# CSV format (for export)
+deebase data list users --format csv > users.csv
+
+# With limit
+deebase data list users --limit 10
+```
+
+**When to use:**
+- Quick data inspection
+- Exporting data to CSV or JSON
+- Verifying insertions
+
+#### data get
+
+Get a single record by primary key.
+
+```bash
+deebase data get TABLE PK [OPTIONS]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `TABLE` | Table name |
+| `PK` | Primary key value |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--format FORMAT` | Output format: table, json (default: json) |
+
+**Examples:**
+
+```bash
+# Get record as JSON
+deebase data get users 1
+
+# Get record as table
+deebase data get users 1 --format table
+```
+
+#### data update
+
+Update a record by primary key.
+
+```bash
+deebase data update TABLE PK [OPTIONS]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `TABLE` | Table name |
+| `PK` | Primary key value |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-f, --field FIELD=VALUE` | Field value to update (repeatable) |
+| `-j, --json JSON` | JSON object with fields to update |
+
+**Examples:**
+
+```bash
+# Update with field option
+deebase data update users 1 -f status=inactive
+
+# Update with JSON
+deebase data update users 1 -j '{"name": "Alice Smith", "status": "active"}'
+```
+
+#### data delete
+
+Delete a record by primary key.
+
+```bash
+deebase data delete TABLE PK [OPTIONS]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `TABLE` | Table name |
+| `PK` | Primary key value |
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-y, --yes` | Skip confirmation prompt |
+
+**Examples:**
+
+```bash
+# Delete with confirmation
+deebase data delete users 1
+
+# Delete without confirmation
+deebase data delete users 1 -y
+```
+
+**Note:** Data commands use project validators from `validators/` directory when available.
+
+---
+
 ### api
 
 FastAPI integration commands. **Requires API dependencies:** `pip install deebase[api]`
@@ -857,6 +1042,7 @@ deebase api serve [OPTIONS]
 | `--host HOST` | Host to bind to (default: 127.0.0.1) |
 | `--port PORT` | Port to bind to (default: 8000) |
 | `--reload` | Enable auto-reload for development |
+| `--admin` | Enable Django-like admin interface at /admin/ |
 
 **Examples:**
 
@@ -870,21 +1056,34 @@ deebase api serve --reload
 # Custom host and port
 deebase api serve --host 0.0.0.0 --port 3000
 
-# Production-like (no reload)
-deebase api serve --host 0.0.0.0
+# With admin interface
+deebase api serve --admin
+
+# Development with admin
+deebase api serve --reload --admin
 ```
 
 **Output:**
 ```
 Starting server at http://127.0.0.1:8000
 API docs at http://127.0.0.1:8000/docs
+Admin interface at http://127.0.0.1:8000/admin/
 
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
 ```
 
+**Admin Interface Features:**
+- Dashboard listing all tables
+- List view with pagination for each table
+- Create form with FK dropdowns populated from parent tables
+- Edit form for updating records
+- Delete confirmation page
+- Automatic validation using project validators
+
 **When to use:**
 - Local development and testing
 - Quick prototyping
+- Data management without writing code (with `--admin`)
 
 **When NOT to use:**
 - Production deployment (use gunicorn with uvicorn workers)
