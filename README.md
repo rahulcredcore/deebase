@@ -4,7 +4,7 @@
 
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![SQLAlchemy 2.0+](https://img.shields.io/badge/sqlalchemy-2.0+-green.svg)](https://www.sqlalchemy.org/)
-[![Tests](https://img.shields.io/badge/tests-439%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-508%20passing-brightgreen.svg)](#)
 [![License](https://img.shields.io/badge/license-TBD-lightgrey.svg)](#)
 
 DeeBase provides a simple, intuitive interface for async database operations in Python. Built on SQLAlchemy, it combines the ergonomics of [fastlite](https://fastlite.answer.ai/) with full async/await support and multi-database compatibility.
@@ -31,6 +31,18 @@ DeeBase provides a simple, intuitive interface for async database operations in 
 - **✅ Validation** - Shared validation layer for CLI, admin, and API
 - **🔧 Admin Interface** - Django-like admin UI at `/admin/`
 
+### Auto-Generated REST API
+
+Define your models, get a full CRUD API with Swagger documentation:
+
+![Auto-generated Swagger UI](docs/swagger-crud-endpoints.png)
+
+### Django-like Admin Interface
+
+Manage your data through a built-in admin UI at `/admin/`:
+
+![Admin Dashboard](docs/admin-dashboard.png)
+
 ## Quick Start
 
 ### Installation
@@ -43,13 +55,25 @@ pip install deebase
 uv add deebase
 
 # With FastAPI integration (optional)
-pip install deebase[api]
-# or: uv add deebase[api]
+pip install "deebase[api]"
+# or: uv add "deebase[api]"
+
+# Install globally as a CLI tool
+uvx tool install deebase
 ```
 
 DeeBase will automatically install its dependencies: SQLAlchemy, aiosqlite, asyncpg, and greenlet.
 
 The `[api]` extra installs FastAPI integration dependencies: fastapi, pydantic, fastcore, uvicorn, and jinja2.
+
+**Running the CLI:**
+```bash
+# If installed as a dependency in your project
+uv run deebase --help
+
+# If installed globally with uvx
+deebase --help
+```
 
 ### Basic Example
 
@@ -92,6 +116,55 @@ await users.delete(1)
 
 await db.close()
 ```
+
+## Documentation
+
+DeeBase documentation follows the [Divio documentation system](https://docs.divio.com/documentation-system/), providing four types of documentation for different needs:
+
+```
+                    DIVIO DOCUMENTATION SYSTEM
+
+        Practical                    Theoretical
+           │                              │
+    ───────┼──────────────────────────────┼───────
+           │                              │
+    TUTORIALS (learning-oriented)  EXPLANATION (understanding-oriented)
+           │                              │
+    • examples/                    • how-it-works.md
+    • examples/README.md           • migrating_from_fastlite.md
+                                   • implemented.md
+           │                              │
+    ───────┼──────────────────────────────┼───────
+           │                              │
+    HOW-TO GUIDES (problem-oriented) REFERENCE (information-oriented)
+           │                              │
+    • best-practices.md            • api_reference.md
+    • fastapi_guide.md             • cli_reference.md
+                                   • types_reference.md
+                                   • implementation_plan.md
+           │                              │
+```
+
+### By Type
+
+**📚 Tutorials** (Learning-oriented - "I want to learn")
+- **[examples/](examples/)** - Hands-on runnable examples for each phase
+- **[examples/README.md](examples/README.md)** - Example index with descriptions and running instructions
+
+**🔧 How-To Guides** (Problem-oriented - "I want to solve a problem")
+- **[Best Practices](docs/best-practices.md)** - Design decisions and patterns (dict vs dataclass, reflection, consistency)
+- **[FastAPI Guide](docs/fastapi_guide.md)** - Building REST APIs with CRUD routers, hooks, and FK validation
+
+**📖 Reference** (Information-oriented - "I want to look up details")
+- **[API Reference](docs/api_reference.md)** - Complete API documentation with "When to Use" guidance
+- **[CLI Reference](docs/cli_reference.md)** - All CLI commands with examples
+- **[Type Reference](docs/types_reference.md)** - Type system mapping guide
+- **[Implementation Plan](docs/implementation_plan.md)** - Development roadmap and phase details
+
+**💡 Explanation** (Understanding-oriented - "I want to understand")
+- **[How It Works](docs/how-it-works.md)** - Technical deep dive into internals
+- **[Migration Guide](docs/migrating_from_fastlite.md)** - Understanding differences from fastlite
+- **[Implementation Guide](docs/implemented.md)** - Feature guide showing what works
 
 ## Type Safety with Dataclasses
 
@@ -409,8 +482,8 @@ Build REST APIs quickly with auto-generated CRUD routers:
 
 ```bash
 # Install API dependencies
-pip install deebase[api]
-# or: uv add deebase[api]
+pip install "deebase[api]"
+# or: uv add "deebase[api]"
 ```
 
 ```python
@@ -577,49 +650,6 @@ Run any example:
 uv run examples/complete_example.py
 ```
 
-## Documentation
-
-DeeBase documentation follows the [Divio documentation system](https://docs.divio.com/documentation-system/), providing four types of documentation for different needs:
-
-```
-                    DIVIO DOCUMENTATION SYSTEM
-
-        Practical                    Theoretical
-           │                              │
-    ───────┼──────────────────────────────┼───────
-           │                              │
-    TUTORIALS (learning-oriented)  EXPLANATION (understanding-oriented)
-           │                              │
-    • examples/                    • how-it-works.md
-      (runnable phase examples     • migrating_from_fastlite.md
-       + complete_example.py)      • implemented.md
-           │                              │
-    ───────┼──────────────────────────────┼───────
-           │                              │
-    HOW-TO GUIDES (problem-oriented) REFERENCE (information-oriented)
-           │                              │
-    • best-practices.md            • api_reference.md
-                                   • types_reference.md
-           │                              │
-```
-
-### By Type
-
-**📚 Tutorials** (Learning-oriented - "I want to learn")
-- **[examples/](examples/)** - Hands-on runnable examples for each phase
-
-**🔧 How-To Guides** (Problem-oriented - "I want to solve a problem")
-- **[Best Practices](docs/best-practices.md)** - Design decisions and patterns (dict vs dataclass, reflection, consistency)
-
-**📖 Reference** (Information-oriented - "I want to look up details")
-- **[API Reference](docs/api_reference.md)** - Complete API documentation with "When to Use" guidance
-- **[Type Reference](docs/types_reference.md)** - Type system mapping guide
-
-**💡 Explanation** (Understanding-oriented - "I want to understand")
-- **[How It Works](docs/how-it-works.md)** - Technical deep dive into internals
-- **[Migration Guide](docs/migrating_from_fastlite.md)** - Understanding differences from fastlite
-- **[Implementation Guide](docs/implemented.md)** - Feature guide showing what works
-
 ## Supported Databases
 
 | Database | Status | Driver |
@@ -656,7 +686,9 @@ DeeBase documentation follows the [Divio documentation system](https://docs.divi
 | `ConnectionError` | Connection failed | `database_url` |
 | `InvalidOperationError` | Invalid operation | `operation`, `target` |
 
-## FastAPI Integration
+## Manual FastAPI Usage
+
+For custom endpoints without CRUD routers:
 
 ```python
 from fastapi import FastAPI, Depends, HTTPException
@@ -714,7 +746,7 @@ uv run pytest --cov=src/deebase --cov-report=html
 uv run pytest tests/test_crud.py -v
 ```
 
-All 494 tests passing ✅
+All 508 tests passing ✅
 
 ### Project Structure
 
@@ -740,7 +772,7 @@ deebase/
 │       ├── migration_runner.py # MigrationRunner class
 │       ├── backup.py         # Database backup functions
 │       └── parser.py         # Field:type parser
-├── tests/                     # 494 passing tests
+├── tests/                     # 508 passing tests
 ├── examples/                  # Runnable examples
 ├── docs/                      # Documentation
 └── README.md                  # This file

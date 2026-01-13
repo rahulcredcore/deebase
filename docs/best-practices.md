@@ -2020,9 +2020,9 @@ async def home():
 FastAPI integration requires the `[api]` extra:
 
 ```bash
-pip install deebase[api]
+pip install "deebase[api]"
 # or
-uv add deebase[api]
+uv add "deebase[api]"
 ```
 
 This installs: fastapi, pydantic, fastcore, uvicorn, jinja2.

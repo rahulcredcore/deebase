@@ -23,9 +23,9 @@ DeeBase provides automatic REST API generation from your dataclass models using 
 ### Installation
 
 ```bash
-pip install deebase[api]
+pip install "deebase[api]"
 # or
-uv add deebase[api]
+uv add "deebase[api]"
 ```
 
 ### Basic Usage
@@ -99,6 +99,14 @@ app.include_router(create_crud_router(
 | POST | `/` | Create new record | `ResponseModel` (201) |
 | PATCH | `/{pk}` | Partial update | `ResponseModel` |
 | DELETE | `/{pk}` | Delete record | 204 No Content |
+
+These endpoints appear in the auto-generated Swagger UI at `/docs`:
+
+![Swagger CRUD Endpoints](swagger-crud-endpoints.png)
+
+The "Try it out" feature lets you test endpoints directly:
+
+![Swagger Response](swagger-response.png)
 
 ### Query Parameters
 
@@ -429,6 +437,22 @@ The admin interface provides:
 - **Delete Confirmation** - Safe deletion with confirmation page
 - **FK Dropdowns** - Foreign key fields show dropdown menus populated from parent tables
 - **Validation** - Uses project validators from `validators/` directory
+
+#### Dashboard
+
+![Admin Dashboard](admin-dashboard.png)
+
+#### List View
+
+Browse records in a table with Edit/Delete actions:
+
+![Admin List View](admin-list-view.png)
+
+#### Edit Form with FK Dropdown
+
+Foreign key fields automatically populate with options from the parent table:
+
+![Admin Edit Form](admin-edit-form.png)
 
 ### Admin URLs
 

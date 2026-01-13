@@ -1334,8 +1334,8 @@ The `deebase.api` module provides FastAPI integration for auto-generating REST C
 
 **Installation:** Requires optional API dependencies:
 ```bash
-pip install deebase[api]
-# or: uv add deebase[api]
+pip install "deebase[api]"
+# or: uv add "deebase[api]"
 ```
 
 ### `create_crud_router()`

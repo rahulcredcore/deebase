@@ -3624,8 +3624,8 @@ Phase 15 adds FastAPI integration for auto-generating REST CRUD endpoints from d
 
 **Installation:** Requires optional API dependencies:
 ```bash
-pip install deebase[api]
-# or: uv add deebase[api]
+pip install "deebase[api]"
+# or: uv add "deebase[api]"
 ```
 
 ### Auto-Generated CRUD Routers

@@ -980,7 +980,7 @@ deebase data delete users 1 -y
 
 ### api
 
-FastAPI integration commands. **Requires API dependencies:** `pip install deebase[api]`
+FastAPI integration commands. **Requires API dependencies:** `pip install "deebase[api]"`
 
 #### api init
 

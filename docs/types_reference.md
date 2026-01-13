@@ -471,7 +471,7 @@ See [API Reference](api_reference.md#validation-module) for full documentation.
 API types require the `[api]` extra:
 
 ```bash
-pip install deebase[api]
+pip install "deebase[api]"
 ```
 
 This installs: `fastapi`, `pydantic`, `fastcore`, `uvicorn`, `jinja2`.
