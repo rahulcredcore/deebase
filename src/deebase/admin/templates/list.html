@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}{{ table_name }} - DeeBase Admin{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/admin/">Dashboard</a>
+    <span>&gt;</span>
+    {{ table_name }}
+</div>
+
+<div class="page-header">
+    <h1>{{ table_name }}</h1>
+    <a href="/admin/{{ table_name }}/new" class="btn btn-primary">+ Add {{ table_name }}</a>
+</div>
+
+<div class="card">
+    {% if records %}
+    <table>
+        <thead>
+            <tr>
+                {% for col in columns %}
+                <th>{{ col }}</th>
+                {% endfor %}
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for record in records %}
+            <tr>
+                {% for col in columns %}
+                <td>
+                    {% set value = record[col] %}
+                    {% if value is none %}
+                        <span style="color: #9ca3af;">null</span>
+                    {% elif value is string and value|length > 50 %}
+                        {{ value[:50] }}...
+                    {% else %}
+                        {{ value }}
+                    {% endif %}
+                </td>
+                {% endfor %}
+                <td class="actions">
+                    <a href="/admin/{{ table_name }}/{{ record[pk_col] }}">Edit</a>
+                    <a href="/admin/{{ table_name }}/{{ record[pk_col] }}/delete" style="color: #dc2626;">Delete</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="?page={{ page - 1 }}&per_page={{ per_page }}">&larr; Previous</a>
+        {% endif %}
+        <span>Page {{ page }}</span>
+        {% if has_next %}
+        <a href="?page={{ page + 1 }}&per_page={{ per_page }}">Next &rarr;</a>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No records found in {{ table_name }}.</p>
+        <a href="/admin/{{ table_name }}/new" class="btn btn-primary" style="margin-top: 1rem;">+ Add first record</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

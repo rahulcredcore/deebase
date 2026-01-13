@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - DeeBase Admin{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Dashboard</h1>
+</div>
+
+{% if tables %}
+<div class="grid">
+    {% for table in tables %}
+    <a href="/admin/{{ table }}/" class="grid-item">
+        <h3>{{ table }}</h3>
+        <p>View and manage records</p>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card">
+    <div class="empty-state">
+        <p>No tables found in the database.</p>
+        <p>Create tables using the CLI:</p>
+        <code style="display: block; margin-top: 0.5rem;">deebase table create users id:int name:str email:str --pk id</code>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

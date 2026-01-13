@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ table_name }} #{{ pk }} - DeeBase Admin{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/admin/">Dashboard</a>
+    <span>&gt;</span>
+    <a href="/admin/{{ table_name }}/">{{ table_name }}</a>
+    <span>&gt;</span>
+    #{{ pk }}
+</div>
+
+<div class="page-header">
+    <h1>Edit {{ table_name }} #{{ pk }}</h1>
+    <a href="/admin/{{ table_name }}/{{ pk }}/delete" class="btn btn-danger">Delete</a>
+</div>
+
+<div class="card">
+    {% if error %}
+    <div class="alert alert-error">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="post" action="/admin/{{ table_name }}/{{ pk }}">
+        {% for col in columns %}
+        <div class="form-group{% if col.is_pk %} disabled{% endif %}">
+            <label for="{{ col.name }}">{{ col.name }}{% if col.is_pk %} (PK){% endif %}</label>
+
+            {% set current_value = record.get(col.name, '') %}
+
+            {% if col.is_pk %}
+            <!-- PK field - read only -->
+            <input type="text" name="{{ col.name }}" id="{{ col.name }}" value="{{ current_value }}" readonly style="background: #f3f4f6;">
+
+            {% elif col.name in fk_columns %}
+            <!-- FK dropdown -->
+            <select name="{{ col.name }}" id="{{ col.name }}">
+                <option value="">-- Select --</option>
+                {% for opt in fk_options[col.name] %}
+                <option value="{{ opt.value }}"{% if current_value == opt.value %} selected{% endif %}>
+                    {{ opt.label }}
+                </option>
+                {% endfor %}
+            </select>
+
+            {% elif 'TEXT' in col.type %}
+            <textarea name="{{ col.name }}" id="{{ col.name }}" rows="4">{{ current_value if current_value is not none else '' }}</textarea>
+
+            {% elif 'VARCHAR' in col.type %}
+            <input type="text" name="{{ col.name }}" id="{{ col.name }}" value="{{ current_value if current_value is not none else '' }}">
+
+            {% elif 'INT' in col.type %}
+            <input type="number" name="{{ col.name }}" id="{{ col.name }}" value="{{ current_value if current_value is not none else '' }}">
+
+            {% elif 'FLOAT' in col.type or 'REAL' in col.type or 'DOUBLE' in col.type %}
+            <input type="number" step="any" name="{{ col.name }}" id="{{ col.name }}" value="{{ current_value if current_value is not none else '' }}">
+
+            {% elif 'BOOL' in col.type %}
+            <select name="{{ col.name }}" id="{{ col.name }}">
+                <option value="">-- Select --</option>
+                <option value="true"{% if current_value == true or current_value == 1 %} selected{% endif %}>True</option>
+                <option value="false"{% if current_value == false or current_value == 0 %} selected{% endif %}>False</option>
+            </select>
+
+            {% elif 'DATE' in col.type and 'TIME' not in col.type %}
+            <input type="date" name="{{ col.name }}" id="{{ col.name }}" value="{{ current_value if current_value is not none else '' }}">
+
+            {% elif 'TIME' in col.type and 'DATE' not in col.type %}
+            <input type="time" name="{{ col.name }}" id="{{ col.name }}" value="{{ current_value if current_value is not none else '' }}">
+
+            {% elif 'DATETIME' in col.type or 'TIMESTAMP' in col.type %}
+            <input type="datetime-local" name="{{ col.name }}" id="{{ col.name }}" value="{{ current_value if current_value is not none else '' }}">
+
+            {% else %}
+            <input type="text" name="{{ col.name }}" id="{{ col.name }}" value="{{ current_value if current_value is not none else '' }}">
+            {% endif %}
+
+            <small>
+                {{ col.type }}
+                {% if col.nullable %} (nullable){% endif %}
+            </small>
+        </div>
+        {% endfor %}
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+            <a href="/admin/{{ table_name }}/" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

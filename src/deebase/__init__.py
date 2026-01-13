@@ -12,6 +12,13 @@ from .exceptions import (
     InvalidOperationError,
     ValidationError,
     SchemaError,
+    ForeignKeyValidationError,
+)
+from .validation import (
+    apply_validators,
+    apply_validators_async,
+    validate_foreign_keys,
+    ValidatedTable,
 )
 from .types import Text, ForeignKey, Index
 from .dataclass_utils import dataclass_src, create_mod, create_mod_from_tables
@@ -31,10 +38,15 @@ __all__ = [
     "InvalidOperationError",
     "ValidationError",
     "SchemaError",
+    "ForeignKeyValidationError",
     "Text",
     "ForeignKey",
     "Index",
     "dataclass_src",
     "create_mod",
     "create_mod_from_tables",
+    "apply_validators",
+    "apply_validators_async",
+    "validate_foreign_keys",
+    "ValidatedTable",
 ]
