@@ -1,6 +1,14 @@
 """Admin interface router for DeeBase.
 
-Provides Django-like admin functionality with list/create/edit/delete views.
+Provides Django-like admin functionality with list/view/create/edit/delete views.
+
+URL Structure (Phase 17):
+    /admin/                         - Dashboard
+    /admin/{table}/                 - List records
+    /admin/{table}/new              - Create form
+    /admin/{table}/{pk}             - Read-only detail view (NEW)
+    /admin/{table}/{pk}/edit        - Edit form (MOVED from /{pk})
+    /admin/{table}/{pk}/delete      - Delete confirmation
 """
 
 from pathlib import Path
@@ -9,6 +17,8 @@ from typing import Any, TYPE_CHECKING
 from fastapi import APIRouter, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+
+from .renderers import render_field
 
 if TYPE_CHECKING:
     from deebase import Database
@@ -35,6 +45,9 @@ def create_admin_router(db: "Database") -> APIRouter:
     # Set up templates
     templates_dir = Path(__file__).parent / "templates"
     templates = Jinja2Templates(directory=str(templates_dir))
+
+    # Add render_field to Jinja2 globals for use in templates
+    templates.env.globals["render_field"] = render_field
 
     @router.get("/", response_class=HTMLResponse)
     async def admin_dashboard(request: Request):
@@ -182,8 +195,45 @@ def create_admin_router(db: "Database") -> APIRouter:
             })
 
     @router.get("/{table_name}/{pk}", response_class=HTMLResponse)
-    async def admin_detail(request: Request, table_name: str, pk: str):
-        """Show detail/edit form for a record."""
+    async def admin_view(request: Request, table_name: str, pk: str):
+        """Show read-only detail view for a record (Phase 17)."""
+        from deebase.exceptions import NotFoundError
+
+        table = _get_table(db, table_name)
+        if table is None:
+            raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
+
+        # Convert pk to appropriate type
+        pk_value = _convert_pk(pk, table)
+
+        try:
+            record = await table[pk_value]
+        except NotFoundError:
+            raise HTTPException(status_code=404, detail=f"Record not found")
+
+        record_dict = _record_to_dict(record)
+
+        # Get columns with type info for rendering
+        pk_cols = {c.name for c in table.sa_table.primary_key.columns}
+        columns = []
+        for c in table.sa_table.columns:
+            columns.append({
+                "name": c.name,
+                "type": str(c.type),
+                "is_pk": c.name in pk_cols,
+            })
+
+        return templates.TemplateResponse("view.html", {
+            "request": request,
+            "table_name": table_name,
+            "pk": pk,
+            "columns": columns,
+            "record": record_dict,
+        })
+
+    @router.get("/{table_name}/{pk}/edit", response_class=HTMLResponse)
+    async def admin_edit_form(request: Request, table_name: str, pk: str):
+        """Show edit form for a record (Phase 17: moved from /{pk})."""
         from deebase.exceptions import NotFoundError
 
         table = _get_table(db, table_name)
@@ -214,7 +264,7 @@ def create_admin_router(db: "Database") -> APIRouter:
         # Get FK options
         fk_options = await _get_fk_options(db, table)
 
-        return templates.TemplateResponse("detail.html", {
+        return templates.TemplateResponse("edit.html", {
             "request": request,
             "table_name": table_name,
             "pk": pk,
@@ -224,9 +274,9 @@ def create_admin_router(db: "Database") -> APIRouter:
             "fk_columns": set(fk_options.keys()),
         })
 
-    @router.post("/{table_name}/{pk}", response_class=HTMLResponse)
+    @router.post("/{table_name}/{pk}/edit", response_class=HTMLResponse)
     async def admin_update_submit(request: Request, table_name: str, pk: str):
-        """Handle update form submission."""
+        """Handle update form submission (Phase 17: moved from POST /{pk})."""
         from deebase.validation import apply_validators, validate_foreign_keys
         from deebase.exceptions import ValidationError, ForeignKeyValidationError, NotFoundError
 
@@ -279,7 +329,7 @@ def create_admin_router(db: "Database") -> APIRouter:
 
             fk_options = await _get_fk_options(db, table)
 
-            return templates.TemplateResponse("detail.html", {
+            return templates.TemplateResponse("edit.html", {
                 "request": request,
                 "table_name": table_name,
                 "pk": pk,

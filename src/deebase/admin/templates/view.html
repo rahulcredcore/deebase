@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}{{ table_name }} #{{ pk }} - DeeBase Admin{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/admin/">Dashboard</a>
+    <span>&gt;</span>
+    <a href="/admin/{{ table_name }}/">{{ table_name }}</a>
+    <span>&gt;</span>
+    #{{ pk }}
+</div>
+
+<div class="page-header">
+    <h1>{{ table_name }} #{{ pk }}</h1>
+    <div class="header-actions">
+        <a href="/admin/{{ table_name }}/{{ pk }}/edit" class="btn btn-primary">Edit</a>
+        <a href="/admin/{{ table_name }}/{{ pk }}/delete" class="btn btn-danger">Delete</a>
+    </div>
+</div>
+
+<div class="card detail-view">
+    {% for col in columns %}
+    <div class="field-row">
+        <div class="field-label">
+            {{ col.name }}{% if col.is_pk %} <span class="badge badge-pk">PK</span>{% endif %}
+        </div>
+        <div class="field-value">
+            {{ render_field(table_name, col.name, col.type, record[col.name], record) | safe }}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="back-link">
+    <a href="/admin/{{ table_name }}/">&larr; Back to {{ table_name }}</a>
+</div>
+{% endblock %}

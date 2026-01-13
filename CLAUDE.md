@@ -27,7 +27,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 ## Project Status
 
-✅ **All 16 Phases Complete** - Production-ready with full Data Management & Admin Interface
+✅ **All 17 Phases Complete** - Production-ready with enhanced Admin Interface
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
@@ -45,7 +45,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 14 Complete** - Migrations (simple runner, fastmigrate-style API)
 ✅ **Phase 15 Complete** - FastAPI Integration (CRUD routers, Pydantic models, FK validation)
 ✅ **Phase 16 Complete** - Data Management & Admin Interface (CLI data commands, Django-like admin UI)
-🔲 **Phase 17 Planned** - Admin UI Enhancements (read-only detail view, clickable rows, custom field renderers)
+✅ **Phase 17 Complete** - Admin UI Enhancements (read-only detail view, clickable rows, custom field renderers)
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
@@ -71,7 +71,8 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Migrations (`MigrationRunner`, `migrate up/down`, `db backup`)
 - ✅ FastAPI Integration (`create_crud_router()`, `CRUDRouter` with hooks, FK validation)
 - ✅ Complete documentation (API reference, migration guide, CLI reference, examples)
-- ✅ 508 passing tests (375 core + 44 API + 24 validation + 61 CLI + 4 misc)
+- ✅ Admin UI enhancements (read-only detail view, type-based renderers, custom displays)
+- ✅ 539 passing tests (375 core + 44 API + 24 validation + 61 CLI + 31 admin + 4 misc)
 
 **Phase 8 Deliverables:**
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`
@@ -177,12 +178,28 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Complete documentation updates (api_reference.md, cli_reference.md, implemented.md, fastapi_guide.md, how-it-works.md, best-practices.md, types_reference.md, README.md)
 - ✅ **508 total passing tests**
 
+**Phase 17 Deliverables:**
+- ✅ Read-only detail view at `/{table}/{pk}` (edit moved to `/{table}/{pk}/edit`)
+- ✅ Clickable rows in list view navigate to detail view
+- ✅ Type-based field renderers (`deebase.admin.renderers`)
+  - JSON rendered as formatted `<pre>` blocks
+  - TEXT preserves newlines with `<br>` tags
+  - BOOLEAN shown as styled "Yes" / "No"
+  - NULL values shown with "—" marker
+- ✅ Custom display functions via `displays/` directory (auto-discovery)
+- ✅ `deebase init` creates `displays/` directory with example templates
+- ✅ `python-multipart` added to API dependencies for form handling
+- ✅ 31 new admin tests
+- ✅ `examples/phase17_admin_enhancements.py` example file
+- ✅ Updated documentation (fastapi_guide.md, cli_reference.md, CLAUDE.md)
+- ✅ **539 total passing tests**
+
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
 
 ## Basic Usage
 
-### Working Now (Phases 1-16)
+### Working Now (Phases 1-17)
 
 ```python
 from deebase import Database, Text, Index, NotFoundError

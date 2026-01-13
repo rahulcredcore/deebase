@@ -431,12 +431,15 @@ deebase api serve --admin
 The admin interface provides:
 
 - **Dashboard** - Lists all tables in your database
-- **List View** - Paginated list of records for each table
+- **List View** - Paginated list of records with clickable rows
+- **Detail View** - Read-only view of record data (Phase 17)
 - **Create Form** - Form for creating new records
 - **Edit Form** - Form for updating existing records
 - **Delete Confirmation** - Safe deletion with confirmation page
 - **FK Dropdowns** - Foreign key fields show dropdown menus populated from parent tables
 - **Validation** - Uses project validators from `validators/` directory
+- **Type-based Renderers** - JSON as formatted `<pre>`, booleans as Yes/No, etc. (Phase 17)
+- **Custom Displays** - Override field rendering via `displays/` directory (Phase 17)
 
 #### Dashboard
 
@@ -444,9 +447,18 @@ The admin interface provides:
 
 #### List View
 
-Browse records in a table with Edit/Delete actions:
+Browse records with clickable rows that navigate to detail view:
 
 ![Admin List View](admin-list-view.png)
+
+#### Detail View (Phase 17)
+
+Read-only view of a record with Edit/Delete buttons:
+
+- JSON fields rendered as formatted `<pre>` blocks
+- TEXT fields preserve line breaks
+- Boolean fields shown as styled "Yes" / "No"
+- NULL values shown with "—" marker
 
 #### Edit Form with FK Dropdown
 
@@ -454,15 +466,21 @@ Foreign key fields automatically populate with options from the parent table:
 
 ![Admin Edit Form](admin-edit-form.png)
 
-### Admin URLs
+### Admin URLs (Phase 17)
 
 | URL | Description |
 |-----|-------------|
 | `/admin/` | Dashboard with table list |
-| `/admin/{table}/` | List records in table |
+| `/admin/{table}/` | List records (clickable rows) |
 | `/admin/{table}/new` | Create new record form |
-| `/admin/{table}/{pk}` | Edit record form |
+| `/admin/{table}/{pk}` | **Read-only detail view** |
+| `/admin/{table}/{pk}/edit` | Edit record form |
 | `/admin/{table}/{pk}/delete` | Delete confirmation |
+
+**Phase 17 Changes:**
+- `/{table}/{pk}` is now a read-only detail view
+- Edit form moved to `/{table}/{pk}/edit`
+- List view rows are clickable (navigate to detail)
 
 ### Programmatic Usage
 
@@ -502,6 +520,67 @@ def get_validators(table_name: str) -> dict:
 ```
 
 When you create or edit records through the admin, these validators are applied automatically.
+
+### Custom Display Functions (Phase 17)
+
+The admin detail view uses type-based renderers by default. You can customize field rendering by creating display modules in the `displays/` directory:
+
+```python
+# displays/articles.py
+"""Custom displays for the articles table."""
+import html
+import json
+
+def render_tags(value, record):
+    """Render tags array as styled badges."""
+    if not value:
+        return '<span class="null">—</span>'
+
+    if isinstance(value, str):
+        value = json.loads(value)
+
+    badges = []
+    for tag in value:
+        escaped = html.escape(str(tag))
+        badges.append(f'<span class="badge">{escaped}</span>')
+    return " ".join(badges)
+
+def render_status(value, record):
+    """Render status with color coding."""
+    colors = {
+        "published": "#16a34a",
+        "draft": "#ca8a04",
+        "archived": "#6b7280",
+    }
+    color = colors.get(str(value).lower(), "#374151")
+    return f'<span style="color:{color};font-weight:500;">{value}</span>'
+
+# Export displays for the admin to discover
+DISPLAYS = {
+    "tags": render_tags,
+    "status": render_status,
+}
+```
+
+When initialized with `deebase init`, a `displays/` directory is created with example templates.
+
+**Display Function Signature:**
+```python
+def render_field_name(value: Any, record: dict) -> str:
+    """Return HTML string to display the field value."""
+    ...
+```
+
+**Default Type Renderers:**
+
+| Column Type | Rendering |
+|-------------|-----------|
+| JSON | Formatted `<pre>` block with syntax highlighting |
+| TEXT | Preserves newlines (`<br>` tags) |
+| BOOLEAN | Styled "Yes" / "No" |
+| INTEGER | Monospace font |
+| DATETIME | Formatted timestamp |
+| NULL | Em dash (—) marker |
 
 ## CLI Commands
 
@@ -595,6 +674,7 @@ See the full working examples:
 - **[examples/complete_blog_api_example.py](../examples/complete_blog_api_example.py)** - Full blog API with HTML routes
 - **[examples/phase16_data_admin.py](../examples/phase16_data_admin.py)** - Validation layer and admin interface
 - **[examples/complete_example_with_validation.py](../examples/complete_example_with_validation.py)** - Blog with validation
+- **[examples/phase17_admin_enhancements.py](../examples/phase17_admin_enhancements.py)** - Admin UI enhancements (detail view, renderers)
 
 Run them:
 
@@ -604,6 +684,9 @@ uv run examples/phase15_fastapi.py
 
 # Complete blog API (uses TestClient, no server needed)
 uv run examples/complete_blog_api_example.py
+
+# Phase 17 admin enhancements
+uv run examples/phase17_admin_enhancements.py
 ```
 
 ## API Reference

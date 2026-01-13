@@ -117,10 +117,19 @@ deebase init [OPTIONS]
 
 ```
 project/
-├── deebase.yaml       # Configuration file
-├── .env               # Environment variables (DATABASE_URL)
+├── .deebase/          # Configuration directory
+│   ├── config.toml    # Project settings
+│   ├── .env           # Environment variables (DATABASE_URL)
+│   └── state.json     # Migration state
+├── data/              # SQLite database files
 ├── migrations/        # Migration files directory
-└── models/            # Generated models directory
+├── models/            # Generated models directory
+├── validators/        # Shared validators for CLI and API
+│   ├── __init__.py    # Validator registry
+│   └── example.py     # Example validators
+└── displays/          # Custom field renderers for admin UI (Phase 17)
+    ├── __init__.py    # Display registry docs
+    └── example.py     # Example display functions
 ```
 
 **Examples:**

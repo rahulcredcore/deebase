@@ -9,6 +9,7 @@ Creates project structure:
     migrations/         - Migration files
     models/             - Generated model files
     validators/         - Shared validators for CLI and API
+    displays/           - Custom field renderers for admin UI
 """
 
 import click
@@ -106,6 +107,7 @@ def init(ctx, package: str, new_package: str, postgres: bool, name: str):
         'data',
         'migrations',
         'validators',  # Shared validators for CLI and API
+        'displays',    # Custom field renderers for admin UI
     ]
 
     # Add models directory for standalone mode
@@ -189,6 +191,18 @@ def init(ctx, package: str, new_package: str, postgres: bool, name: str):
     if not validators_example.exists():
         validators_example.write_text(_get_validators_example_template())
         click.echo("  Created: validators/example.py")
+
+    # Create displays/__init__.py and example.py
+    displays_dir = project_root / 'displays'
+    displays_init = displays_dir / '__init__.py'
+    if not displays_init.exists():
+        displays_init.write_text(_get_displays_init_template())
+        click.echo("  Created: displays/__init__.py")
+
+    displays_example = displays_dir / 'example.py'
+    if not displays_example.exists():
+        displays_example.write_text(_get_displays_example_template())
+        click.echo("  Created: displays/example.py")
 
     click.echo("")
     click.echo(f"Project '{project_name}' initialized successfully!")
@@ -347,5 +361,120 @@ def validate_length(min_len: int = 0, max_len: int = None):
 VALIDATORS = {
     # "email": validate_email,
     # "name": validate_non_empty,
+}
+'''
+
+
+def _get_displays_init_template() -> str:
+    """Get the template for displays/__init__.py."""
+    return '''"""Custom field displays for admin UI.
+
+Used by the admin interface to render field values.
+See displays/example.py for how to create custom displays.
+
+To add displays for a table:
+1. Create a file: displays/your_table.py
+2. Define display functions and DISPLAYS dict
+3. The admin UI will auto-discover them
+
+Example:
+    # displays/articles.py
+    def render_history(value, record):
+        return "<pre>" + json.dumps(value, indent=2) + "</pre>"
+
+    DISPLAYS = {
+        "history": render_history,
+    }
+"""
+'''
+
+
+def _get_displays_example_template() -> str:
+    """Get the template for displays/example.py."""
+    return '''"""Example displays - copy this file for your tables.
+
+Display functions customize how field values appear in the admin detail view.
+They receive:
+- value: The field value to render
+- record: The full record dict (for context-aware rendering)
+
+They return an HTML string.
+
+Usage:
+1. Copy this file to displays/your_table.py
+2. Create display functions
+3. Export them in the DISPLAYS dict
+4. The admin UI will auto-discover them
+"""
+import html
+import json
+from typing import Any
+
+
+def render_tags(value: Any, record: dict) -> str:
+    """Render a JSON array of tags as styled badges."""
+    if not value:
+        return '<span class="null">—</span>'
+
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return html.escape(value)
+
+    if not isinstance(value, list):
+        return html.escape(str(value))
+
+    badges = []
+    for tag in value:
+        escaped = html.escape(str(tag))
+        badges.append(f'<span style="display:inline-block;padding:2px 8px;margin:2px;background:#e5e7eb;border-radius:4px;font-size:0.875rem;">{escaped}</span>')
+    return "".join(badges)
+
+
+def render_status(value: Any, record: dict) -> str:
+    """Render a status field with color coding."""
+    if value is None:
+        return '<span class="null">—</span>'
+
+    status = str(value).lower()
+    colors = {
+        "active": "#16a34a",
+        "pending": "#ca8a04",
+        "inactive": "#9ca3af",
+        "error": "#dc2626",
+        "draft": "#6b7280",
+        "published": "#2563eb",
+    }
+    color = colors.get(status, "#374151")
+    escaped = html.escape(str(value))
+    return f'<span style="color:{color};font-weight:500;">{escaped}</span>'
+
+
+def render_url(value: Any, record: dict) -> str:
+    """Render a URL as a clickable link."""
+    if not value:
+        return '<span class="null">—</span>'
+
+    escaped = html.escape(str(value))
+    return f'<a href="{escaped}" target="_blank" rel="noopener">{escaped}</a>'
+
+
+def render_email(value: Any, record: dict) -> str:
+    """Render an email as a mailto link."""
+    if not value:
+        return '<span class="null">—</span>'
+
+    escaped = html.escape(str(value))
+    return f'<a href="mailto:{escaped}">{escaped}</a>'
+
+
+# Register displays for this table
+# Uncomment and modify as needed:
+DISPLAYS = {
+    # "tags": render_tags,
+    # "status": render_status,
+    # "website": render_url,
+    # "email": render_email,
 }
 '''
