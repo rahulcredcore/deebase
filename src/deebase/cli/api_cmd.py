@@ -139,14 +139,16 @@ async def init_db():
         deps_file.write_text(deps_content)
         click.echo(f"  Created: {deps_file}")
 
-    # Create routers.py
-    routers_file = api_dir / "routers.py"
-    if not routers_file.exists():
+    # Create routers/ directory with __init__.py
+    routers_dir = api_dir / "routers"
+    routers_dir.mkdir(exist_ok=True)
+    routers_init = routers_dir / "__init__.py"
+    if not routers_init.exists():
         routers_content = '''"""Router registration for FastAPI app."""
 
 from fastapi import FastAPI
 
-from .dependencies import get_db
+from ..dependencies import get_db
 
 
 def register_routers(app: FastAPI):
@@ -165,20 +167,26 @@ def register_routers(app: FastAPI):
                 prefix="/api/users",
                 tags=["Users"],
             ))
+
+    Or after running 'deebase api generate':
+
+        from .users import create_users_router
+        app.include_router(create_users_router(db))
     """
     # TODO: Add your routers here
+    # After running 'deebase api generate', import and register generated routers
     pass
 '''
-        routers_file.write_text(routers_content)
-        click.echo(f"  Created: {routers_file}")
+        routers_init.write_text(routers_content)
+        click.echo(f"  Created: {routers_init}")
 
     click.echo()
     click.echo("API structure created:")
     click.echo("  api/")
     click.echo("    __init__.py")
-    click.echo("    app.py           # FastAPI application")
-    click.echo("    routers.py       # Router registration")
-    click.echo("    dependencies.py  # Database dependency")
+    click.echo("    app.py              # FastAPI application")
+    click.echo("    routers/__init__.py # Router registration")
+    click.echo("    dependencies.py     # Database dependency")
     click.echo()
 
     # Install dependencies
@@ -222,8 +230,9 @@ def register_routers(app: FastAPI):
 
     click.echo()
     click.echo("Next steps:")
-    click.echo("  1. Edit api/routers.py to add your CRUD routers")
+    click.echo("  1. Run: deebase api generate --all  (generates and wires routers)")
     click.echo("  2. Run: deebase api serve")
+    click.echo("  Or for admin-only: deebase api serve --admin")
     click.echo()
 
 
@@ -330,66 +339,194 @@ async def _generate_routers(tables: tuple, all_tables: bool, output: str):
         output_dir = Path(output)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create __init__.py if not exists
-        init_file = output_dir / "__init__.py"
-        if not init_file.exists():
-            init_file.write_text('"""Generated API routers."""\n')
+        # Check for legacy api/routers.py file that conflicts with api/routers/ directory
+        legacy_routers_file = output_dir.parent / "routers.py"
+        if legacy_routers_file.exists() and output_dir.name == "routers":
+            click.echo(f"Warning: Found legacy {legacy_routers_file}")
+            click.echo("  This file conflicts with the api/routers/ directory.")
+            click.echo("  Please delete it: rm api/routers.py")
+            click.echo()
+
+        # Load available models from models file
+        available_models = _find_available_models(config)
+        if available_models:
+            click.echo(f"Found models: {', '.join(available_models.keys())}")
+        else:
+            click.echo("Note: No models file found. Generating placeholder routers.")
+            click.echo("  Run 'deebase codegen' first, or routers will only have GET / endpoint.")
+            click.echo()
 
         # Generate router for each table
+        tables_with_models = []
+        tables_without_models = []
         for table_name in table_list:
-            router_content = _generate_router_code(table_name, db)
+            class_name = _table_to_class_name(table_name)
+            model_info = available_models.get(class_name)
+            router_content = _generate_router_code(table_name, db, model_info, config)
             router_file = output_dir / f"{table_name}.py"
             router_file.write_text(router_content)
-            click.echo(f"Generated: {router_file}")
+
+            if model_info:
+                tables_with_models.append(table_name)
+                click.echo(f"Generated: {router_file} (full CRUD with {class_name})")
+            else:
+                tables_without_models.append(table_name)
+                click.echo(f"Generated: {router_file} (placeholder - no model found)")
+
+        # Generate/update __init__.py with imports and register_routers
+        init_content = _generate_init_code(table_list)
+        init_file = output_dir / "__init__.py"
+        init_file.write_text(init_content)
+        click.echo(f"Updated: {init_file}")
+
+        click.echo()
+        if tables_with_models:
+            click.echo(f"Full CRUD routers: {len(tables_with_models)} tables")
+        if tables_without_models:
+            click.echo(f"Placeholder routers: {len(tables_without_models)} tables")
+            click.echo("  To get full CRUD, create tables with 'deebase table create'")
+        click.echo()
+        click.echo("Run 'deebase api serve' to start the server.")
 
     finally:
         await db.close()
 
 
-def _generate_router_code(table_name: str, db) -> str:
-    """Generate router code for a single table."""
-    class_name = table_name.title().replace("_", "")
+def _table_to_class_name(table_name: str) -> str:
+    """Convert table name to class name (users -> User, user_posts -> UserPosts)."""
+    # Handle common pluralization
+    name = table_name
+    if name.endswith('ies'):
+        name = name[:-3] + 'y'  # categories -> category
+    elif name.endswith('es') and not name.endswith('sses'):
+        name = name[:-2]  # boxes -> box, but not classes -> class
+    elif name.endswith('s') and not name.endswith('ss'):
+        name = name[:-1]  # users -> user, but not class -> clas
 
-    return f'''"""CRUD router for {table_name} table.
+    # Convert to title case
+    return name.title().replace("_", "")
+
+
+def _find_available_models(config) -> dict:
+    """Find available dataclass models from the models file.
+
+    Returns dict mapping class name to module path info.
+    """
+    models_path = Path(config.models_output)
+    if not models_path.exists():
+        return {}
+
+    # Parse the models file to find @dataclass classes
+    content = models_path.read_text()
+    models = {}
+
+    import re
+    # Find @dataclass decorated classes
+    pattern = r'@dataclass\s*\nclass\s+(\w+)'
+    for match in re.finditer(pattern, content):
+        class_name = match.group(1)
+        # Convert models/tables.py -> models.tables
+        module_path = str(models_path.with_suffix('')).replace('/', '.').replace('\\', '.')
+        models[class_name] = {
+            'class_name': class_name,
+            'module_path': module_path,
+        }
+
+    return models
+
+
+def _generate_init_code(table_list: list) -> str:
+    """Generate __init__.py code with imports and register_routers."""
+    imports = []
+    registrations = []
+
+    for table_name in sorted(table_list):
+        imports.append(f"from .{table_name} import create_{table_name}_router")
+        registrations.append(f"        app.include_router(create_{table_name}_router(db))")
+
+    imports_str = "\n".join(imports)
+    registrations_str = "\n".join(registrations)
+
+    return f'''"""Generated API routers."""
+
+from fastapi import FastAPI
+
+from ..dependencies import get_db
+
+{imports_str}
+
+
+def register_routers(app: FastAPI):
+    """Register all CRUD routers."""
+    db = get_db()
+    if db:
+{registrations_str}
+'''
+
+
+def _generate_router_code(table_name: str, db, model_info: dict | None, config) -> str:
+    """Generate router code for a single table.
+
+    If model_info is provided, generates fully-wired create_crud_router() code.
+    Otherwise generates a placeholder router with just GET /.
+    """
+    class_name = _table_to_class_name(table_name)
+
+    if model_info:
+        # Generate fully-wired router with create_crud_router()
+        module_path = model_info['module_path']
+        model_class = model_info['class_name']
+
+        return f'''"""CRUD router for {table_name} table.
 
 Auto-generated by: deebase api generate
 """
 
-from fastapi import APIRouter, Depends
 from deebase import Database
 from deebase.api import create_crud_router
-
-# Import your model - adjust path as needed
-# from models.tables import {class_name}
+from {module_path} import {model_class}
 
 
-def create_{table_name}_router(db: Database) -> APIRouter:
+def create_{table_name}_router(db: Database):
     """Create the CRUD router for {table_name}.
 
-    Args:
-        db: Database instance
-
-    Returns:
-        FastAPI APIRouter with CRUD endpoints
-
-    Example usage in api/routers.py:
-        from .routers.{table_name} import create_{table_name}_router
-
-        def register_routers(app: FastAPI):
-            db = get_db()
-            if db:
-                app.include_router(create_{table_name}_router(db))
+    Provides full CRUD endpoints:
+        GET    /api/{table_name}/       - List all records
+        GET    /api/{table_name}/{{id}}   - Get record by ID
+        POST   /api/{table_name}/       - Create new record
+        PUT    /api/{table_name}/{{id}}   - Update record
+        DELETE /api/{table_name}/{{id}}   - Delete record
     """
-    # TODO: Import your {class_name} model and uncomment below
-    # return create_crud_router(
-    #     db=db,
-    #     model_cls={class_name},
-    #     prefix="/api/{table_name}",
-    #     tags=["{class_name}"],
-    #     validate_fks=True,
-    # )
+    return create_crud_router(
+        db=db,
+        model_cls={model_class},
+        prefix="/api/{table_name}",
+        tags=["{class_name}"],
+        validate_fks=True,
+    )
+'''
+    else:
+        # Generate placeholder router (no model found)
+        return f'''"""CRUD router for {table_name} table.
 
-    # Placeholder router until model is imported
+Auto-generated by: deebase api generate
+
+NOTE: This is a placeholder router with only GET / endpoint.
+To get full CRUD, create the table with 'deebase table create' which
+generates the model, then re-run 'deebase api generate'.
+"""
+
+from fastapi import APIRouter
+from deebase import Database
+
+
+def create_{table_name}_router(db: Database):
+    """Create a placeholder router for {table_name}.
+
+    Only provides GET / endpoint. For full CRUD:
+    1. Create table with: deebase table create {table_name} ...
+    2. Re-run: deebase api generate {table_name}
+    """
     router = APIRouter(prefix="/api/{table_name}", tags=["{class_name}"])
 
     @router.get("/")

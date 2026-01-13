@@ -531,7 +531,12 @@ deebase data get users 1                 # Get by PK
 deebase data update users 1 -f status=inactive
 deebase data delete users 1 -y           # Delete (skip confirm)
 
-# Admin interface
+# REST API (seamless workflow)
+deebase api init                # Set up API structure
+deebase api generate --all      # Generate full CRUD routers (auto-detects models)
+deebase api serve               # Start server at http://127.0.0.1:8000
+
+# Admin interface (no api generate needed)
 deebase api serve --admin       # Start with admin at /admin/
 ```
 

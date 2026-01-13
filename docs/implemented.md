@@ -3779,16 +3779,23 @@ app.include_router(create_crud_router(
 ### CLI Commands
 
 ```bash
-# Initialize API structure
-deebase api init
+# Seamless workflow (recommended):
+deebase init                                    # Initialize project
+deebase table create users id:int name:str --pk id  # Creates table + model
+deebase api init                                # Set up API structure
+deebase api generate --all                      # Generate full CRUD routers
+deebase api serve                               # Start server
 
-# Start development server
-deebase api serve --reload
-
-# Generate router code from tables
-deebase api generate users posts
-deebase api generate --all
+# Or for admin-only (no api generate needed):
+deebase api serve --admin
 ```
+
+**How it works:**
+- `deebase table create` automatically generates dataclass models in `models/tables.py`
+- `deebase api generate` detects these models and generates fully-wired `create_crud_router()` code
+- No manual code editing needed - just create tables and generate!
+
+**Note:** The `api/routers/__init__.py` file is auto-generated. Do not manually edit - it is regenerated each time you run `api generate`.
 
 ### Complete Example
 

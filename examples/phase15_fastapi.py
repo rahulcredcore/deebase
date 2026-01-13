@@ -399,16 +399,26 @@ Example FastAPI app using DeeBase:
     print("""
 DeeBase API CLI commands:
 
-    # Initialize API structure
+    # Initialize API structure (creates api/ directory)
     $ deebase api init
+
+    # Generate routers from tables (auto-wires them in api/routers/__init__.py)
+    $ deebase api generate users posts
+    $ deebase api generate --all
 
     # Start development server
     $ deebase api serve
     $ deebase api serve --reload --port 8080
 
-    # Generate router code from tables
-    $ deebase api generate users posts
-    $ deebase api generate --all
+Typical workflow:
+    $ deebase init                    # Initialize project
+    $ deebase table create users ...  # Create tables
+    $ deebase api init                # Set up API structure
+    $ deebase api generate --all      # Generate and wire routers
+    $ deebase api serve               # Start server
+
+Note: api generate automatically updates api/routers/__init__.py with
+imports and registration. Do not manually edit that file.
 """)
 
     print("=" * 60)

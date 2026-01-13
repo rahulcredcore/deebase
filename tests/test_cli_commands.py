@@ -130,7 +130,8 @@ class TestAPICommands:
             assert (project_root / "api").is_dir()
             assert (project_root / "api" / "__init__.py").exists()
             assert (project_root / "api" / "app.py").exists()
-            assert (project_root / "api" / "routers.py").exists()
+            assert (project_root / "api" / "routers").is_dir()
+            assert (project_root / "api" / "routers" / "__init__.py").exists()
             assert (project_root / "api" / "dependencies.py").exists()
 
     def test_api_init_requires_project(self):

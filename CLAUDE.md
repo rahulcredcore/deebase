@@ -151,6 +151,9 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - Route override mechanism via `overrides` dict, `exclude` set, or subclassing
 - Exception → HTTP mapping (NotFoundError→404, IntegrityError→422, etc.)
 - CLI commands: `deebase api init`, `deebase api serve`, `deebase api generate`
+- **Seamless workflow**: `api generate` auto-detects models from `models/tables.py` and generates fully-wired routers
+- **No manual editing required**: `table create` → `api generate` → `api serve` works out of the box
+- `api/routers/__init__.py` auto-generated with imports and `register_routers()` function
 - `examples/phase15_fastapi.py` and `examples/complete_blog_api_example.py` examples
 - 34 new tests using FastAPI TestClient (409 total passing tests)
 - Optional `[api]` dependency group: `pip install deebase[api]` or `uv add deebase[api]`

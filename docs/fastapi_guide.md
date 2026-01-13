@@ -373,11 +373,17 @@ DeeBase includes a Django-like admin interface for managing your data through a 
 ### Enabling the Admin
 
 ```bash
-# Start server with admin interface
+# Prerequisites: initialize project and API structure
+deebase init
+deebase api init
+
+# Start server with admin interface (no api generate needed!)
 deebase api serve --admin
 
 # Access at http://127.0.0.1:8000/admin/
 ```
+
+**Note:** The admin interface uses database reflection to discover tables automatically. You do NOT need to run `deebase api generate` for the admin - it works with any existing tables in your database.
 
 ### Features
 
@@ -448,6 +454,10 @@ DeeBase provides CLI commands for API scaffolding:
 # Initialize API structure (creates api/ directory)
 deebase api init
 
+# Generate router code from database tables (auto-wires routers)
+deebase api generate users posts
+deebase api generate --all
+
 # Start development server
 deebase api serve
 deebase api serve --reload --port 8080
@@ -456,10 +466,6 @@ deebase api serve --reload --port 8080
 deebase api serve --admin
 deebase api serve --reload --admin
 
-# Generate router code from database tables
-deebase api generate users posts
-deebase api generate --all
-
 # Data management (no code needed)
 deebase data list users
 deebase data insert users -f name=Alice -f email=alice@example.com
@@ -467,6 +473,62 @@ deebase data get users 1
 deebase data update users 1 -f status=inactive
 deebase data delete users 1 -y
 ```
+
+### Typical Workflows
+
+**Seamless REST API (recommended):**
+
+```bash
+# 1. Initialize project
+deebase init
+
+# 2. Create tables (automatically generates models in models/tables.py)
+deebase table create users id:int name:str email:str:unique --pk id
+deebase table create posts id:int author_id:int:fk=users title:str content:text --pk id
+
+# 3. Set up API structure
+deebase api init
+
+# 4. Generate routers (detects models, generates full CRUD automatically)
+deebase api generate --all
+# Output: Generated: api/routers/users.py (full CRUD with User)
+#         Generated: api/routers/posts.py (full CRUD with Post)
+
+# 5. Start server - full REST API ready!
+deebase api serve
+```
+
+**Admin Interface Only (no generated routers needed):**
+
+```bash
+# 1. Initialize project and create tables
+deebase init
+deebase table create users id:int name:str email:str --pk id
+
+# 2. Set up API structure
+deebase api init
+
+# 3. Start server with admin (uses reflection, no api generate needed)
+deebase api serve --admin
+```
+
+**Both REST API and Admin:**
+
+```bash
+deebase init
+deebase table create users id:int name:str email:str --pk id
+deebase api init
+deebase api generate --all
+deebase api serve --admin  # REST endpoints + admin interface
+```
+
+**Key Points:**
+
+- `deebase table create` automatically generates dataclass models in `models/tables.py`
+- `deebase api generate` detects these models and generates fully-wired CRUD routers
+- No manual code editing needed for standard CRUD workflows
+- The `api/routers/__init__.py` file is auto-generated - do not edit manually
+- To customize routers, edit individual files in `api/routers/` after generation
 
 ## Complete Example
 

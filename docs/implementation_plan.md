@@ -2297,18 +2297,14 @@ Installing API dependencies...
 Created:
   api/
     __init__.py
-    app.py           # FastAPI application
-    routers.py       # Router registration
-    dependencies.py  # Database dependency
+    app.py              # FastAPI application
+    routers/__init__.py # Router registration (auto-generated)
+    dependencies.py     # Database dependency
 
-Dependencies installed:
-  - fastapi
-  - pydantic
-  - fastcore (for docments)
-  - uvicorn
-  - jinja2 (for HTML templates)
-
-Run with: deebase api serve
+Next steps:
+  1. Run: deebase api generate --all  (generates and wires routers)
+  2. Run: deebase api serve
+  Or for admin-only: deebase api serve --admin
 ```
 
 **`deebase api serve`** - Start development server:
@@ -2319,18 +2315,31 @@ INFO:     Uvicorn running on http://127.0.0.1:8000
 INFO:     API docs at http://127.0.0.1:8000/docs
 
 $ deebase api serve --host 0.0.0.0 --port 5000 --reload
+$ deebase api serve --admin  # Enable admin interface
 ```
 
-**`deebase api generate`** - Generate router code:
+**`deebase api generate`** - Generate router code (auto-detects models):
 
 ```bash
-$ deebase api generate posts
-Generated: api/routers/posts.py
-
 $ deebase api generate --all
-Generated: api/routers/users.py
-Generated: api/routers/posts.py
-Generated: api/routers/comments.py
+Found models: User, Post, Comment
+Generated: api/routers/users.py (full CRUD with User)
+Generated: api/routers/posts.py (full CRUD with Post)
+Generated: api/routers/comments.py (full CRUD with Comment)
+Updated: api/routers/__init__.py
+
+Full CRUD routers: 3 tables
+Run 'deebase api serve' to start the server.
+```
+
+**Seamless workflow** - `table create` generates models, `api generate` detects them:
+
+```bash
+deebase init
+deebase table create users id:int name:str email:str --pk id  # Creates table + model
+deebase api init
+deebase api generate --all  # Detects User model, generates full CRUD
+deebase api serve           # Full REST API ready!
 ```
 
 #### Testing Without a Webserver
