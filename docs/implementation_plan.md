@@ -3442,6 +3442,207 @@ No new dependencies required - Jinja2 is already in the `[api]` extra.
 
 ---
 
+### Phase 17: Admin UI Enhancements
+
+**Status:** Planned
+
+**Goal:** Improve admin interface with read-only detail views, clickable rows, and customizable field rendering.
+
+**Planned Deliverables:**
+- Read-only detail view at `/{table}/{pk}` (edit moves to `/{table}/{pk}/edit`)
+- Clickable rows in list view navigate to detail view
+- Type-based field renderers (JSON as `<pre>`, TEXT in styled div, etc.)
+- Custom display functions via `displays/` directory (auto-discovery)
+- `deebase init` creates `displays/` scaffold
+- Updated screenshots and documentation
+- Tests for new routes and renderers
+
+#### URL Structure Changes
+
+| Before | After | Purpose |
+|--------|-------|---------|
+| `/{table}/{pk}` | `/{table}/{pk}` | **Read-only view** (NEW) |
+| `/{table}/{pk}` | `/{table}/{pk}/edit` | Edit form (MOVED) |
+| `/{table}/{pk}/delete` | `/{table}/{pk}/delete` | Delete confirm (unchanged) |
+
+#### Part 1: Read-Only Detail View
+
+**Template changes:**
+- Rename `detail.html` → `edit.html`
+- Create `view.html` - read-only display with Edit/Delete buttons
+
+**Router changes:**
+- New route `GET /{table}/{pk}` → renders `view.html`
+- Move edit form to `GET /{table}/{pk}/edit`
+- Move update handler to `POST /{table}/{pk}/edit`
+- Update redirects after create/update to go to view page
+
+**List template changes:**
+- Make rows clickable (link to detail view)
+- Keep Edit/Delete in Actions column or simplify
+
+#### Part 2: Field Renderers
+
+**New file: `src/deebase/admin/renderers.py`**
+
+```python
+"""Field renderers for admin detail view.
+
+Each renderer takes (value, record, col_type) and returns HTML string.
+Custom displays can override per table/field.
+"""
+
+def render_json(value, record, col_type):
+    """Default renderer for JSON/dict types."""
+    if value is None:
+        return '<span class="null">—</span>'
+    import json
+    return f'<pre class="json-value">{json.dumps(value, indent=2)}</pre>'
+
+def render_text(value, record, col_type):
+    """Default renderer for TEXT columns."""
+    if value is None:
+        return '<span class="null">—</span>'
+    return f'<div class="text-value">{value}</div>'
+
+def render_boolean(value, record, col_type):
+    if value is None:
+        return '<span class="null">—</span>'
+    return "Yes" if value else "No"
+
+def render_default(value, record, col_type):
+    if value is None:
+        return '<span class="null">—</span>'
+    return str(value)
+
+# Type -> renderer mapping
+TYPE_RENDERERS = {
+    "JSON": render_json,
+    "TEXT": render_text,
+    "BOOLEAN": render_boolean,
+    "BOOL": render_boolean,
+}
+
+def get_renderer(col_type: str):
+    """Get default renderer for a column type."""
+    col_type_upper = col_type.upper()
+    for type_key, renderer in TYPE_RENDERERS.items():
+        if type_key in col_type_upper:
+            return renderer
+    return render_default
+
+
+def render_field(table_name: str, col_name: str, col_type: str, value, record):
+    """Render a field value - checks custom displays first, then type default."""
+    custom = _load_custom_display(table_name, col_name)
+    if custom:
+        return custom(value, record)
+
+    renderer = get_renderer(col_type)
+    return renderer(value, record, col_type)
+```
+
+#### Part 3: Custom Display Functions
+
+**Auto-discovery pattern (like validators):**
+
+```
+displays/
+  articles.py    # auto-discovered for "articles" table
+  users.py       # auto-discovered for "users" table
+```
+
+```python
+# displays/articles.py
+def render_history(value, record):
+    """Custom HTML for LLM history JSON field."""
+    if not value:
+        return "<em>No history</em>"
+
+    html = '<div class="chat-history">'
+    for msg in value.get("messages", []):
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        html += f'<div class="msg msg-{role}"><strong>{role}:</strong> {content}</div>'
+    html += '</div>'
+    return html
+
+DISPLAYS = {
+    "history": render_history,
+}
+```
+
+**Loading mechanism:**
+
+```python
+def _load_custom_display(table_name: str, field_name: str):
+    """Auto-discover displays/{table_name}.py and look up field."""
+    import sys
+    import importlib
+    from pathlib import Path
+
+    displays_dir = Path.cwd() / "displays"
+    if not displays_dir.exists():
+        return None
+
+    try:
+        if str(Path.cwd()) not in sys.path:
+            sys.path.insert(0, str(Path.cwd()))
+
+        module = importlib.import_module(f"displays.{table_name}")
+        return getattr(module, "DISPLAYS", {}).get(field_name)
+    except ImportError:
+        return None
+```
+
+#### Part 4: Template Updates
+
+**view.html (new):**
+```html
+{% extends "base.html" %}
+
+{% block title %}{{ table_name }} #{{ pk }} - DeeBase Admin{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/admin/">Dashboard</a> &gt;
+    <a href="/admin/{{ table_name }}/">{{ table_name }}</a> &gt;
+    #{{ pk }}
+</div>
+
+<div class="page-header">
+    <h1>{{ table_name }} #{{ pk }}</h1>
+    <div class="actions">
+        <a href="/admin/{{ table_name }}/{{ pk }}/edit" class="btn btn-primary">Edit</a>
+        <a href="/admin/{{ table_name }}/{{ pk }}/delete" class="btn btn-danger">Delete</a>
+    </div>
+</div>
+
+<div class="card">
+    {% for col in columns %}
+    <div class="field-row">
+        <label>{{ col.name }}{% if col.is_pk %} (PK){% endif %}</label>
+        <div class="field-value">
+            {{ render_field(table_name, col.name, col.type, record[col.name], record) | safe }}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
+```
+
+#### Documentation Updates
+
+1. `examples/phase17_admin_enhancements.py` - Phase example
+2. `docs/fastapi_guide.md` - Update Admin URLs table, add screenshots
+3. `docs/api_reference.md` - Document renderers API
+4. `docs/cli_reference.md` - Update if `deebase init` changes
+5. `docs/implemented.md` - Phase 17 section
+6. `README.md` - Update admin description
+7. `CLAUDE.md` - Mark Phase 17 complete
+
+---
+
 ## Testing Strategy
 
 Each phase includes tests:

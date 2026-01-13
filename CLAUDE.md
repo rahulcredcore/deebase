@@ -45,6 +45,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 14 Complete** - Migrations (simple runner, fastmigrate-style API)
 ✅ **Phase 15 Complete** - FastAPI Integration (CRUD routers, Pydantic models, FK validation)
 ✅ **Phase 16 Complete** - Data Management & Admin Interface (CLI data commands, Django-like admin UI)
+🔲 **Phase 17 Planned** - Admin UI Enhancements (read-only detail view, clickable rows, custom field renderers)
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
@@ -793,7 +794,9 @@ git checkout -b feature/descriptive-name
 - Run all examples to verify no regressions
 
 ### 5. Documentation Updates (one by one)
-Update each documentation file (ALL are important - don't skip any):
+Update each documentation file (ALL are important - don't skip any).
+**Stop after each file and ask the user for screenshots if the feature has UI changes.**
+
 1. `examples/phaseN_*.py` - Create phase example
 2. `examples/complete_example.py` - Add new feature showcase (or reference new example)
 3. `docs/api_reference.md` - API documentation (all new classes/methods)
@@ -803,9 +806,19 @@ Update each documentation file (ALL are important - don't skip any):
 7. `docs/types_reference.md` - If new types added (including API types for FastAPI)
 8. `docs/how-it-works.md` - Technical internals (SQLAlchemy implementation details)
 9. `docs/fastapi_guide.md` - FastAPI integration guide (if API changes)
+   - **Ask for screenshots** if admin UI or Swagger changes
 10. `docs/implementation_plan.md` - Mark phase as complete, update deliverables
 11. `README.md` - User-facing documentation
+    - **Ask for screenshots** if there are new visual features to showcase
 12. `CLAUDE.md` - Developer context and phase status
+
+**Screenshot workflow:**
+- When updating docs that benefit from screenshots (fastapi_guide.md, README.md), ask the user:
+  "Would you like to provide screenshots for [feature]? If so, I can set up sample data."
+- Set up sample data in the user's test project if needed
+- User takes screenshots and adds them to ImageAssets
+- Copy screenshots to `docs/` with descriptive names
+- Reference in documentation with `![Description](filename.png)`
 
 ### 6. Finalize & Create Pull Request
 ```bash
