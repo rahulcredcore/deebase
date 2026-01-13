@@ -1995,6 +1995,7 @@ app.include_router(create_crud_router(db, Comment, prefix="/api/comments", tags=
 
 For hybrid apps with both API and HTML:
 
+{% raw %}
 ```python
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
@@ -2012,6 +2013,7 @@ async def home():
     html = Template("<ul>{% for p in posts %}<li>{{p.title}}</li>{% endfor %}</ul>")
     return html.render(posts=posts)
 ```
+{% endraw %}
 
 ### Installation Note
 

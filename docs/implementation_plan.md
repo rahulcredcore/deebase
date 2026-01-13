@@ -3203,6 +3203,7 @@ def api_serve(host: str, port: int, reload: bool, admin: bool):
 
 **Template Example (list.html):**
 
+{% raw %}
 ```html
 {% extends "base.html" %}
 
@@ -3249,6 +3250,7 @@ def api_serve(host: str, port: int, reload: bool, admin: bool):
 </div>
 {% endblock %}
 ```
+{% endraw %}
 
 #### Part 5: Update `deebase init`
 
