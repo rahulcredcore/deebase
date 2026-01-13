@@ -7,6 +7,8 @@ Parses field specifications like:
     status:str:default=active
     author_id:int:fk=users
     category_id:int:fk=categories.id
+    name:str:"User display name"
+    author_id:int:fk=users:"Author reference"
 """
 
 from dataclasses import dataclass, field
@@ -25,6 +27,7 @@ class FieldDefinition:
         default: Default value (str, int, float, bool)
         fk_table: Foreign key target table
         fk_column: Foreign key target column (defaults to 'id')
+        doc: Field documentation (for inline comments in generated code)
     """
     name: str
     type_name: str
@@ -33,6 +36,7 @@ class FieldDefinition:
     default: Optional[Any] = None
     fk_table: Optional[str] = None
     fk_column: Optional[str] = None
+    doc: Optional[str] = None
 
     @property
     def is_foreign_key(self) -> bool:
@@ -75,7 +79,7 @@ class FieldDefinition:
 def parse_field(field_spec: str) -> FieldDefinition:
     """Parse a field specification string.
 
-    Format: name:type[:modifier[:modifier...]]
+    Format: name:type[:modifier[:modifier...]][:docstring]
 
     Types:
         int, str, float, bool, bytes
@@ -89,6 +93,10 @@ def parse_field(field_spec: str) -> FieldDefinition:
         :default=val - Default value
         :fk=table - Foreign key to table.id
         :fk=table.col - Foreign key to table.column
+
+    Docstrings:
+        :"text" - Field documentation (must be quoted if contains spaces/colons)
+        Unquoted single-word docstrings also work: :username
 
     Args:
         field_spec: Field specification string (e.g., "email:str:unique")
@@ -111,13 +119,37 @@ def parse_field(field_spec: str) -> FieldDefinition:
 
         >>> parse_field("author_id:int:fk=users")
         FieldDefinition(name='author_id', type_name='int', fk_table='users', fk_column='id')
+
+        >>> parse_field('name:str:"User display name"')
+        FieldDefinition(name='name', type_name='str', doc='User display name')
     """
-    parts = field_spec.split(':')
+    # Handle quoted docstrings that may contain colons
+    # Find the first quote character and extract the docstring
+    doc = None
+    main_spec = field_spec
+
+    for quote_char in ('"', "'"):
+        quote_pos = field_spec.find(f':{quote_char}')
+        if quote_pos != -1:
+            # Found start of quoted docstring
+            doc_start = quote_pos + 2  # Skip ':' and quote
+            # Find closing quote
+            end_quote = field_spec.find(quote_char, doc_start)
+            if end_quote != -1:
+                doc = field_spec[doc_start:end_quote]
+                main_spec = field_spec[:quote_pos]
+            else:
+                # Unclosed quote - take rest as docstring
+                doc = field_spec[doc_start:]
+                main_spec = field_spec[:quote_pos]
+            break
+
+    parts = main_spec.split(':')
 
     if len(parts) < 2:
         raise ValueError(
             f"Invalid field specification '{field_spec}'. "
-            f"Expected format: name:type[:modifier[:modifier...]]"
+            f"Expected format: name:type[:modifier[:modifier...]][:docstring]"
         )
 
     name = parts[0].strip()
@@ -164,10 +196,14 @@ def parse_field(field_spec: str) -> FieldDefinition:
                 fk_table = fk_ref
                 fk_column = 'id'
         elif modifier:
-            raise ValueError(
-                f"Unknown modifier '{modifier}' in '{field_spec}'. "
-                f"Valid modifiers: unique, nullable, default=value, fk=table[.column]"
-            )
+            # If no doc yet and this is the last modifier, treat as unquoted docstring
+            if doc is None and modifier == modifiers[-1]:
+                doc = modifier
+            else:
+                raise ValueError(
+                    f"Unknown modifier '{modifier}' in '{field_spec}'. "
+                    f"Valid modifiers: unique, nullable, default=value, fk=table[.column]"
+                )
 
     return FieldDefinition(
         name=name,
@@ -177,6 +213,7 @@ def parse_field(field_spec: str) -> FieldDefinition:
         default=default,
         fk_table=fk_table,
         fk_column=fk_column,
+        doc=doc,
     )
 
 

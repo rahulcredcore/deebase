@@ -72,6 +72,9 @@ async def lifespan(app: FastAPI):
     await init_db()
     db = get_db()
 
+    # Register CRUD routers (must be after init_db so db is available)
+    register_routers(app)
+
     # Register admin interface if enabled
     if os.environ.get("DEEBASE_ADMIN_ENABLED") == "1" and db:
         try:
@@ -94,9 +97,6 @@ app = FastAPI(
     description="Auto-generated REST API",
     lifespan=lifespan,
 )
-
-# Register CRUD routers
-register_routers(app)
 
 
 if __name__ == "__main__":
@@ -360,15 +360,14 @@ async def _generate_routers(tables: tuple, all_tables: bool, output: str):
         tables_with_models = []
         tables_without_models = []
         for table_name in table_list:
-            class_name = _table_to_class_name(table_name)
-            model_info = available_models.get(class_name)
+            model_info = _find_model_for_table(table_name, available_models)
             router_content = _generate_router_code(table_name, db, model_info, config)
             router_file = output_dir / f"{table_name}.py"
             router_file.write_text(router_content)
 
             if model_info:
                 tables_with_models.append(table_name)
-                click.echo(f"Generated: {router_file} (full CRUD with {class_name})")
+                click.echo(f"Generated: {router_file} (full CRUD with {model_info['class_name']})")
             else:
                 tables_without_models.append(table_name)
                 click.echo(f"Generated: {router_file} (placeholder - no model found)")
@@ -398,13 +397,49 @@ def _table_to_class_name(table_name: str) -> str:
     name = table_name
     if name.endswith('ies'):
         name = name[:-3] + 'y'  # categories -> category
-    elif name.endswith('es') and not name.endswith('sses'):
-        name = name[:-2]  # boxes -> box, but not classes -> class
+    elif name.endswith('sses'):
+        name = name[:-2]  # classes -> class
+    elif name.endswith('xes') or name.endswith('zes') or name.endswith('shes') or name.endswith('ches'):
+        name = name[:-2]  # boxes -> box, dishes -> dish
+    elif name.endswith('oes'):
+        name = name[:-2]  # heroes -> hero (but not ctypes -> ctyp)
     elif name.endswith('s') and not name.endswith('ss'):
-        name = name[:-1]  # users -> user, but not class -> clas
+        name = name[:-1]  # users -> user, ctypes -> ctype
 
     # Convert to title case
     return name.title().replace("_", "")
+
+
+def _find_model_for_table(table_name: str, available_models: dict) -> dict | None:
+    """Find a model for a table, trying multiple naming conventions.
+
+    Tries multiple naming conventions to match table names to class names:
+    - singular: users -> User
+    - plural: users -> Users
+    - capitalize: test_docs -> Test_docs (preserves underscores)
+    - title: test_docs -> Test_Docs (capitalizes each word)
+    """
+    # Try singular form first (users -> User)
+    singular = _table_to_class_name(table_name)
+    if singular in available_models:
+        return available_models[singular]
+
+    # Try plural/original form (users -> Users)
+    plural = table_name.title().replace("_", "")
+    if plural in available_models:
+        return available_models[plural]
+
+    # Try capitalize (test_docs -> Test_docs) - preserves underscores
+    capitalized = table_name.capitalize()
+    if capitalized in available_models:
+        return available_models[capitalized]
+
+    # Try exact table name title-cased (ctypes -> Ctypes)
+    exact = table_name.replace("_", " ").title().replace(" ", "")
+    if exact in available_models:
+        return available_models[exact]
+
+    return None
 
 
 def _find_available_models(config) -> dict:

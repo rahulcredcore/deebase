@@ -3797,6 +3797,37 @@ deebase api serve --admin
 
 **Note:** The `api/routers/__init__.py` file is auto-generated. Do not manually edit - it is regenerated each time you run `api generate`.
 
+### OpenAPI Documentation
+
+Field and class docstrings flow through to OpenAPI automatically:
+
+```bash
+# Create table with description and field docstrings
+deebase table create articles \
+    id:int \
+    'title:str:"Article title"' \
+    'content:Text:"Full article content"' \
+    'author_id:int:fk=users:"Author reference"' \
+    --pk id \
+    --description "Published articles"
+```
+
+This generates `models/tables.py` with proper docstrings:
+
+```python
+@dataclass
+class Articles:
+    """Published articles"""
+    id: Optional[int] = None  # Id (int)
+    title: Optional[str] = None  # Article title
+    content: Optional[Text] = None  # Full article content
+    author_id: ForeignKey[int, "users"] = None  # Author reference
+```
+
+In OpenAPI/Swagger UI:
+- **Model description**: "Published articles"
+- **Field descriptions**: "Article title", "Full article content", "Author reference (FK -> users.id)"
+
 ### Complete Example
 
 ```python

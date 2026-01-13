@@ -127,6 +127,50 @@ class TestPydanticModelGeneration:
         desc = CreateModel.model_fields["author_id"].description
         assert "FK" in desc or "user.id" in desc
 
+    def test_extracts_field_docstrings(self):
+        """Should extract field descriptions from inline comments."""
+        # User class has inline comments like:
+        # id: int  # Auto-generated user ID
+        CreateModel, _, _ = generate_pydantic_models(User)
+
+        # Field descriptions should be extracted from comments
+        name_desc = CreateModel.model_fields["name"].description
+        email_desc = CreateModel.model_fields["email"].description
+
+        # Should have some description (from docments)
+        assert name_desc  # "Display name"
+        assert email_desc  # "Email address (unique)"
+
+    def test_class_docstring_in_model_doc(self):
+        """Should use class docstring in generated Pydantic models."""
+        @dataclass
+        class Article:
+            """Articles published by users."""
+            id: int
+            title: str
+
+        CreateModel, UpdateModel, ResponseModel = generate_pydantic_models(Article)
+
+        # Response model should have class docstring
+        assert "Articles published by users" in ResponseModel.__doc__
+
+        # Create/Update models should include it with annotation
+        assert "Articles published by users" in CreateModel.__doc__
+        assert "Articles published by users" in UpdateModel.__doc__
+
+    def test_no_class_docstring_uses_default(self):
+        """Should use default description when class has no docstring."""
+        @dataclass
+        class NoDoc:
+            id: int
+            name: str
+
+        CreateModel, _, ResponseModel = generate_pydantic_models(NoDoc)
+
+        # Should use default description
+        assert "NoDoc" in CreateModel.__doc__
+        assert "NoDoc" in ResponseModel.__doc__
+
 
 # ============================================================================
 # FK Validation Tests

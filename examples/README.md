@@ -20,11 +20,13 @@ This folder contains runnable examples demonstrating DeeBase features.
 | 13 | [phase13_cli.py](./phase13_cli.py) | CLI (demonstrates what CLI does under the hood) |
 | 14 | [phase14_migrations.py](./phase14_migrations.py) | Database migrations with MigrationRunner |
 | 15 | [phase15_fastapi.py](./phase15_fastapi.py) | FastAPI integration with CRUD routers |
+| 16 | [phase16_data_admin.py](./phase16_data_admin.py) | Data management & admin interface |
 | - | [views_joins_ctes.py](./views_joins_ctes.py) | Using views for JOINs and CTEs |
 | - | [complete_example.py](./complete_example.py) | Full-featured blog showcasing all capabilities |
 | - | [complete_cli_example.py](./complete_cli_example.py) | End-to-end CLI workflow |
 | - | [complete_migrations_example.py](./complete_migrations_example.py) | Full migration workflow with CLI |
 | - | [complete_blog_api_example.py](./complete_blog_api_example.py) | Complete blog REST API with hooks |
+| - | [complete_example_with_validation.py](./complete_example_with_validation.py) | Full example with validation |
 
 ## Running Examples
 
@@ -72,6 +74,9 @@ uv run examples/phase14_migrations.py
 
 # Run Phase 15 example (FastAPI)
 uv run examples/phase15_fastapi.py
+
+# Run Phase 16 example (data management & admin)
+uv run examples/phase16_data_admin.py
 
 # Run views for JOINs and CTEs example
 uv run examples/views_joins_ctes.py

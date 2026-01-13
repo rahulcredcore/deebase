@@ -10,7 +10,8 @@ from .parser import FieldDefinition
 def generate_class_source(
     class_name: str,
     fields: list[FieldDefinition],
-    as_dataclass: bool = False
+    as_dataclass: bool = False,
+    description: str = None,
 ) -> str:
     """Generate Python class source code from field definitions.
 
@@ -18,6 +19,7 @@ def generate_class_source(
         class_name: Name for the generated class
         fields: List of FieldDefinition objects
         as_dataclass: If True, generate a @dataclass decorated class
+        description: Optional class docstring
 
     Returns:
         Python source code string
@@ -47,6 +49,10 @@ def generate_class_source(
     if as_dataclass:
         lines.append("@dataclass")
     lines.append(f"class {class_name}:")
+
+    # Class docstring
+    if description:
+        lines.append(f'    """{description}"""')
 
     # Field definitions
     for field in fields:
@@ -172,6 +178,7 @@ def generate_migration_code(
 def generate_models_code(
     class_name: str,
     fields: list[FieldDefinition],
+    description: str = None,
 ) -> str:
     """Generate models file code for a table.
 
@@ -181,11 +188,12 @@ def generate_models_code(
     Args:
         class_name: Name for the generated class
         fields: List of FieldDefinition objects
+        description: Optional class docstring
 
     Returns:
         Python source code for the models file
     """
-    return generate_class_source(class_name, fields, as_dataclass=True)
+    return generate_class_source(class_name, fields, as_dataclass=True, description=description)
 
 
 def _collect_imports(fields: list[FieldDefinition], as_dataclass: bool) -> list[str]:
@@ -247,17 +255,19 @@ def _collect_imports(fields: list[FieldDefinition], as_dataclass: bool) -> list[
     return sorted(imports)
 
 
-def _generate_field_line(field: FieldDefinition, as_dataclass: bool) -> str:
+def _generate_field_line(field: FieldDefinition, as_dataclass: bool, auto_doc: bool = True) -> str:
     """Generate a single field line for a class definition.
 
     Args:
         field: FieldDefinition object
         as_dataclass: Whether generating a dataclass field
+        auto_doc: If True and no doc provided, generate placeholder doc
 
     Returns:
         Field line string (without indentation)
     """
     type_str = field.python_type
+    base_line = ""
 
     # For dataclasses, make everything Optional with None default
     if as_dataclass:
@@ -267,17 +277,76 @@ def _generate_field_line(field: FieldDefinition, as_dataclass: bool) -> str:
         # Add default value
         if field.default is not None:
             if isinstance(field.default, str):
-                return f'{field.name}: {type_str} = "{field.default}"'
+                base_line = f'{field.name}: {type_str} = "{field.default}"'
             else:
-                return f'{field.name}: {type_str} = {field.default}'
+                base_line = f'{field.name}: {type_str} = {field.default}'
         else:
-            return f'{field.name}: {type_str} = None'
-
-    # Regular class
-    if field.default is not None:
-        if isinstance(field.default, str):
-            return f'{field.name}: {type_str} = "{field.default}"'
+            base_line = f'{field.name}: {type_str} = None'
+    else:
+        # Regular class
+        if field.default is not None:
+            if isinstance(field.default, str):
+                base_line = f'{field.name}: {type_str} = "{field.default}"'
+            else:
+                base_line = f'{field.name}: {type_str} = {field.default}'
         else:
-            return f'{field.name}: {type_str} = {field.default}'
+            base_line = f'{field.name}: {type_str}'
 
-    return f'{field.name}: {type_str}'
+    # Add inline comment (docstring) in docments style
+    doc = field.doc
+    if doc is None and auto_doc:
+        # Generate placeholder doc
+        doc = _generate_placeholder_doc(field)
+
+    if doc:
+        return f'{base_line}  # {doc}'
+    return base_line
+
+
+def _generate_placeholder_doc(field: FieldDefinition) -> str:
+    """Generate a placeholder documentation string for a field.
+
+    Args:
+        field: FieldDefinition object
+
+    Returns:
+        Placeholder documentation string
+    """
+    # For foreign keys, include the reference
+    if field.is_foreign_key:
+        ref = f"{field.fk_table}.{field.fk_column}" if field.fk_column != 'id' else field.fk_table
+        return f"FK -> {ref}"
+
+    # Humanize the field name for placeholder
+    # e.g., user_id -> User ID, firstName -> First Name
+    name = field.name
+
+    # Handle snake_case
+    words = name.replace('_', ' ').split()
+
+    # Handle camelCase
+    result = []
+    for word in words:
+        # Split camelCase
+        chars = list(word)
+        current = []
+        for i, c in enumerate(chars):
+            if c.isupper() and current and not chars[i-1].isupper():
+                result.append(''.join(current))
+                current = [c.lower()]
+            else:
+                current.append(c)
+        if current:
+            result.append(''.join(current))
+
+    # Title case and join
+    humanized = ' '.join(w.capitalize() for w in result)
+
+    # Get base type for description
+    type_display = field.type_name
+    if type_display in ('Text', 'text'):
+        type_display = 'text'
+    elif type_display in ('dict', 'json'):
+        type_display = 'JSON'
+
+    return f"{humanized} ({type_display})"

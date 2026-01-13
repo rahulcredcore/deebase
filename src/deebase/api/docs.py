@@ -95,3 +95,18 @@ def get_field_description(
         return fk_note
 
     return base_doc
+
+
+def get_class_description(cls: type) -> str:
+    """Get the class docstring for use in Pydantic/OpenAPI.
+
+    Args:
+        cls: A class (typically a dataclass)
+
+    Returns:
+        The class docstring if present, otherwise empty string
+    """
+    doc = getattr(cls, '__doc__', None)
+    if doc:
+        return doc.strip()
+    return ""

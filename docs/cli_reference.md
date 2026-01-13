@@ -187,6 +187,7 @@ deebase table create NAME FIELDS... [OPTIONS]
 | `default=VALUE` | Default value | `status:str:default=active` |
 | `fk=TABLE` | Foreign key to table.id | `author_id:int:fk=users` |
 | `fk=TABLE.COL` | Foreign key to specific column | `category:str:fk=categories.slug` |
+| `:"docstring"` | Field documentation (for OpenAPI) | `'name:str:"User name"'` |
 
 **Options:**
 
@@ -194,6 +195,7 @@ deebase table create NAME FIELDS... [OPTIONS]
 |--------|-------------|
 | `--pk COLUMN` | Primary key column(s), comma-separated |
 | `--index COLUMNS` | Create index on column(s) |
+| `--description/-d TEXT` | Table/model description (class docstring) |
 
 **Examples:**
 
@@ -209,6 +211,15 @@ deebase table create users \
     bio:Text:nullable \
     status:str:default=active \
     --pk id
+
+# With description and field docstrings
+deebase table create articles \
+    id:int \
+    'title:str:"Article title"' \
+    'content:Text:"Full article content"' \
+    'author_id:int:fk=users:"Author reference"' \
+    --pk id \
+    --description "Published articles"
 
 # With foreign key and index
 deebase table create posts \

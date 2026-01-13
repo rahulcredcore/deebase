@@ -3912,6 +3912,47 @@ def generate_pydantic_models(
     return CreateModel, UpdateModel, ResponseModel
 ```
 
+### Class Docstrings and OpenAPI Documentation
+
+Class docstrings flow through to OpenAPI model descriptions, providing context in the API documentation:
+
+```python
+# src/deebase/api/docs.py
+
+def get_class_description(cls: type) -> str:
+    """Extract class docstring for OpenAPI model description."""
+    doc = getattr(cls, '__doc__', None)
+    if doc:
+        return doc.strip()
+    return ""
+
+# src/deebase/api/models.py - Model generation uses class docstrings
+
+class_doc = get_class_description(dataclass_cls)
+create_doc = f"{class_doc} (create request)" if class_doc else f"Request model for creating a {class_name}."
+update_doc = f"{class_doc} (update request)" if class_doc else f"Request model for updating a {class_name}."
+response_doc = class_doc if class_doc else f"Response model for {class_name}."
+
+# Pydantic models get __doc__ for OpenAPI schema descriptions
+CreateModel.__doc__ = create_doc
+UpdateModel.__doc__ = update_doc
+ResponseModel.__doc__ = response_doc
+```
+
+The CLI supports both class and field documentation:
+
+```bash
+# Class docstring via --description flag
+deebase table create users id:int name:str --pk id --description "System users"
+
+# Field docstrings via quoted strings in field syntax
+deebase table create posts id:int title:str:"Post title" author_id:int:fk=users:"FK -> users" --pk id
+```
+
+Auto-generated placeholder comments are created for fields without explicit docstrings:
+- FK fields: `FK -> table` (e.g., `FK -> users`)
+- Regular fields: Humanized name + type (e.g., `Author ID (int)`)
+
 ### ForeignKey Type Extraction
 
 Foreign key annotations like `ForeignKey[int, "user"]` are runtime-inspectable:

@@ -11,7 +11,7 @@ from typing import Any, Optional, get_type_hints, get_origin, get_args, Type
 
 from pydantic import BaseModel, Field, create_model
 
-from .docs import extract_field_docs, get_field_description
+from .docs import extract_field_docs, get_field_description, get_class_description
 
 
 # Type mapping from Python types to Pydantic-compatible types
@@ -196,8 +196,9 @@ def generate_pydantic_models(
 
     class_name = dataclass_cls.__name__
 
-    # Extract field documentation
+    # Extract field and class documentation
     field_docs = extract_field_docs(dataclass_cls)
+    class_doc = get_class_description(dataclass_cls)
 
     # Build FK lookup map
     fk_lookup = {}
@@ -293,21 +294,26 @@ def generate_pydantic_models(
         )
 
     # Create the models dynamically
+    # Use class docstring if available, otherwise use generic description
+    create_doc = f"{class_doc} (create request)" if class_doc else f"Request model for creating a {class_name}."
+    update_doc = f"{class_doc} (update request)" if class_doc else f"Request model for updating a {class_name}."
+    response_doc = class_doc if class_doc else f"Response model for {class_name}."
+
     CreateModel = create_model(
         f"{class_name}Create",
-        __doc__=f"Request model for creating a {class_name}.",
+        __doc__=create_doc,
         **create_fields
     )
 
     UpdateModel = create_model(
         f"{class_name}Update",
-        __doc__=f"Request model for updating a {class_name}.",
+        __doc__=update_doc,
         **update_fields
     )
 
     ResponseModel = create_model(
         f"{class_name}Response",
-        __doc__=f"Response model for {class_name}.",
+        __doc__=response_doc,
         **response_fields
     )
 

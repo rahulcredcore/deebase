@@ -135,6 +135,39 @@ class User:
 
 In OpenAPI docs, `name` will show description "Display name".
 
+### Class Docstrings
+
+Class docstrings become model descriptions in OpenAPI:
+
+```python
+@dataclass
+class Article:
+    """Published articles in the blog."""
+    id: int              # Article ID
+    title: str           # Article title
+    content: Text        # Full content
+```
+
+OpenAPI will show:
+- `ArticleResponse` description: "Published articles in the blog."
+- `ArticleCreate` description: "Published articles in the blog. (create request)"
+- `ArticleUpdate` description: "Published articles in the blog. (update request)"
+
+### CLI Integration
+
+When creating tables via CLI, use `--description` and field docstrings:
+
+```bash
+deebase table create articles \
+    id:int \
+    'title:str:"Article title"' \
+    'content:Text:"Full content"' \
+    --pk id \
+    --description "Published articles"
+```
+
+This generates `models/tables.py` with proper docstrings that flow through to OpenAPI.
+
 ## FK Validation
 
 When `validate_fks=True`, DeeBase validates foreign key references before insert/update:

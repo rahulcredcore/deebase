@@ -494,6 +494,10 @@ deebase table create users id:int name:str email:str:unique --pk id
 # Create table with foreign key
 deebase table create posts id:int author_id:int:fk=users title:str --pk id --index author_id
 
+# Create table with description and field docstrings (for OpenAPI)
+deebase table create articles id:int 'title:str:"Article title"' 'content:Text:"Full content"' \
+    --pk id --description "Published articles"
+
 # List tables
 deebase table list
 

@@ -130,10 +130,17 @@ class TestParser:
         with pytest.raises(ValueError, match="Invalid type"):
             parse_field("field:invalid_type")
 
-    def test_parse_invalid_modifier(self):
-        """Test error for invalid modifier."""
+    def test_parse_unknown_modifier_becomes_docstring(self):
+        """Test that unknown last modifier becomes docstring."""
+        # Unknown last segment is now treated as docstring
+        field = parse_field("field:str:description")
+        assert field.doc == "description"
+
+    def test_parse_invalid_modifier_not_last(self):
+        """Test error for invalid modifier when not the last segment."""
+        # Unknown modifier NOT at the end should still raise
         with pytest.raises(ValueError, match="Unknown modifier"):
-            parse_field("field:str:invalid_modifier")
+            parse_field("field:str:badmod:unique")
 
     def test_parse_empty_name(self):
         """Test error for empty field name."""
@@ -144,6 +151,35 @@ class TestParser:
         """Test error for invalid field name."""
         with pytest.raises(ValueError, match="valid Python identifier"):
             parse_field("123field:str")
+
+    def test_parse_quoted_docstring(self):
+        """Test parsing quoted docstrings."""
+        field = parse_field('name:str:"User display name"')
+        assert field.name == "name"
+        assert field.type_name == "str"
+        assert field.doc == "User display name"
+
+    def test_parse_quoted_docstring_with_colon(self):
+        """Test parsing quoted docstring containing colons."""
+        field = parse_field('name:str:"User: display name"')
+        assert field.doc == "User: display name"
+
+    def test_parse_docstring_with_modifier(self):
+        """Test parsing docstring after modifier."""
+        field = parse_field('email:str:unique:"Email address"')
+        assert field.unique is True
+        assert field.doc == "Email address"
+
+    def test_parse_docstring_with_fk(self):
+        """Test parsing docstring after foreign key."""
+        field = parse_field('author_id:int:fk=users:"Author reference"')
+        assert field.fk_table == "users"
+        assert field.doc == "Author reference"
+
+    def test_parse_single_quoted_docstring(self):
+        """Test parsing single-quoted docstrings."""
+        field = parse_field("name:str:'User display name'")
+        assert field.doc == "User display name"
 
     def test_parse_fields_list(self):
         """Test parsing multiple field specs."""
@@ -214,6 +250,56 @@ class TestGenerator:
         assert "@dataclass" in src
         assert "from dataclasses import dataclass" in src
         assert "= None" in src  # All fields have None default in dataclass mode
+
+    def test_generate_class_with_description(self):
+        """Test generating class with class-level docstring."""
+        fields = [
+            FieldDefinition(name="id", type_name="int"),
+            FieldDefinition(name="name", type_name="str"),
+        ]
+        src = generate_class_source("User", fields, description="User accounts")
+        assert "class User:" in src
+        assert '"""User accounts"""' in src
+
+    def test_generate_class_with_field_docstrings(self):
+        """Test generating class with field-level docstrings."""
+        fields = [
+            FieldDefinition(name="id", type_name="int"),
+            FieldDefinition(name="name", type_name="str", doc="User display name"),
+            FieldDefinition(name="email", type_name="str", doc="Email address"),
+        ]
+        src = generate_class_source("User", fields)
+        assert "# User display name" in src
+        assert "# Email address" in src
+
+    def test_generate_dataclass_with_auto_docs(self):
+        """Test dataclass generation with auto-generated placeholder docs."""
+        fields = [
+            FieldDefinition(name="user_id", type_name="int"),
+            FieldDefinition(name="firstName", type_name="str"),
+        ]
+        src = generate_class_source("Profile", fields, as_dataclass=True)
+        # Should have auto-generated placeholder comments
+        assert "# " in src  # Has some comment
+
+    def test_generate_dataclass_fk_auto_doc(self):
+        """Test that FK fields get auto-generated doc with reference."""
+        fields = [
+            FieldDefinition(name="author_id", type_name="int", fk_table="users", fk_column="id"),
+        ]
+        src = generate_class_source("Post", fields, as_dataclass=True)
+        assert "FK -> users" in src
+
+    def test_generate_models_code_with_description(self):
+        """Test generate_models_code includes description."""
+        fields = [
+            FieldDefinition(name="id", type_name="int"),
+            FieldDefinition(name="title", type_name="str"),
+        ]
+        src = generate_models_code("Article", fields, description="Published articles")
+        assert "@dataclass" in src
+        assert "class Article:" in src
+        assert '"""Published articles"""' in src
 
     def test_generate_create_call_simple(self):
         """Test generating simple create call."""

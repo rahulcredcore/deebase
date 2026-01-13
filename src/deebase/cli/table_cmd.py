@@ -35,10 +35,11 @@ def table():
 @click.option('--pk', default='id', help='Primary key column(s), comma-separated for composite')
 @click.option('--index', '-i', 'indexes', multiple=True, help='Create index on column(s)')
 @click.option('--if-not-exists', is_flag=True, help="Don't error if table exists")
-def create(name: str, fields: tuple, pk: str, indexes: tuple, if_not_exists: bool):
+@click.option('--description', '-d', help='Table/model description (becomes class docstring)')
+def create(name: str, fields: tuple, pk: str, indexes: tuple, if_not_exists: bool, description: str):
     """Create a new table with the specified fields.
 
-    Fields use the format: name:type[:modifier[:modifier...]]
+    Fields use the format: name:type[:modifier[:modifier...]][:docstring]
 
     Types: int, str, float, bool, bytes, Text, dict, datetime, date, time
 
@@ -49,17 +50,21 @@ def create(name: str, fields: tuple, pk: str, indexes: tuple, if_not_exists: boo
         :fk=table   - Foreign key to table.id
         :fk=t.col   - Foreign key to table.column
 
+    Field Docstrings:
+        :"text"     - Field description (for OpenAPI docs)
+
     Examples:
 
-        # Simple table
-        deebase table create users id:int name:str email:str:unique --pk id
+        # Simple table with description
+        deebase table create users id:int name:str email:str:unique --pk id \\
+            --description "User accounts for the application"
 
-        # With foreign key and default
+        # With field docstrings
         deebase table create posts \\
             id:int \\
-            author_id:int:fk=users \\
-            title:str \\
-            status:str:default=draft \\
+            'author_id:int:fk=users:"Post author"' \\
+            'title:str:"Post title"' \\
+            'status:str:default=draft:"Publication status"' \\
             --pk id --index author_id
 
         # Composite primary key
@@ -135,7 +140,7 @@ def create(name: str, fields: tuple, pk: str, indexes: tuple, if_not_exists: boo
             click.echo(f"Warning: {e}")
 
         # Update models file
-        _update_models_file(config, project_root, class_name, parsed_fields)
+        _update_models_file(config, project_root, class_name, parsed_fields, description)
 
     except Exception as e:
         click.echo(f"Error: {e}")
@@ -231,7 +236,7 @@ def _get_python_type(type_name: str):
     return type_map.get(type_name, str)
 
 
-def _update_models_file(config, project_root: Path, class_name: str, fields: list[FieldDefinition]):
+def _update_models_file(config, project_root: Path, class_name: str, fields: list[FieldDefinition], description: str = None):
     """Update the models file with the new class."""
     from .generator import generate_models_code
 
@@ -239,7 +244,7 @@ def _update_models_file(config, project_root: Path, class_name: str, fields: lis
     models_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Generate models code
-    models_code = generate_models_code(class_name, fields)
+    models_code = generate_models_code(class_name, fields, description=description)
 
     if models_path.exists():
         # Append to existing file

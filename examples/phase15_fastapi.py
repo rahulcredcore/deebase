@@ -7,6 +7,8 @@ Key concepts:
 - create_crud_router(): Auto-generate REST endpoints
 - CRUDRouter: Configurable class with hooks
 - Pydantic model generation: Automatic Create/Update/Response models
+- Field docstrings: Inline comments become OpenAPI field descriptions
+- Class docstrings: Become Pydantic model descriptions
 - FK validation: Validate FK references before insert/update
 - Exception mapping: DeeBase exceptions -> HTTP status codes
 - Route customization: Exclude routes, override handlers
@@ -85,6 +87,16 @@ async def main():
 
     # Response model includes all fields
     print(f"  UserResponse includes 'id': {'id' in UserResponse.model_fields}")
+
+    # Field docstrings from inline comments (fastcore.docments)
+    print(f"\n  Field descriptions (from inline comments):")
+    for field_name, field_info in UserCreate.model_fields.items():
+        desc = field_info.description or "(no description)"
+        print(f"    {field_name}: {desc}")
+
+    # Class docstring becomes model description (appears in OpenAPI)
+    print(f"\n  Model description (from class docstring):")
+    print(f"    UserResponse.__doc__ = {UserResponse.__doc__}")
 
     # =========================================================
     # Part 2: FK Validation

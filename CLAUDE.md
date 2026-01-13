@@ -70,7 +70,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Migrations (`MigrationRunner`, `migrate up/down`, `db backup`)
 - ✅ FastAPI Integration (`create_crud_router()`, `CRUDRouter` with hooks, FK validation)
 - ✅ Complete documentation (API reference, migration guide, CLI reference, examples)
-- ✅ 494 passing tests (375 core + 34 API + 24 validation + 55 CLI + 6 misc)
+- ✅ 508 passing tests (375 core + 44 API + 24 validation + 61 CLI + 4 misc)
 
 **Phase 8 Deliverables:**
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`
@@ -147,6 +147,9 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - `create_crud_router()` - Auto-generate REST CRUD endpoints from `@dataclass` models
 - `CRUDRouter` class with hooks (`before_create`, `after_create`, etc.) for customization
 - Pydantic model generation from dataclass + `fastcore.docments()` for OpenAPI docs
+- **OpenAPI documentation support**: Class docstrings become model descriptions, field comments become field descriptions
+- **CLI docstring syntax**: `field:type:"docstring"` and `--description` flag for class docstrings
+- **Auto-generated placeholder comments**: FK fields get "FK -> table", other fields get "Humanized Name (type)"
 - FK existence validation before insert/update (better errors than DB constraint failures)
 - Route override mechanism via `overrides` dict, `exclude` set, or subclassing
 - Exception → HTTP mapping (NotFoundError→404, IntegrityError→422, etc.)
@@ -155,7 +158,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - **No manual editing required**: `table create` → `api generate` → `api serve` works out of the box
 - `api/routers/__init__.py` auto-generated with imports and `register_routers()` function
 - `examples/phase15_fastapi.py` and `examples/complete_blog_api_example.py` examples
-- 34 new tests using FastAPI TestClient (409 total passing tests)
+- 44 API tests using FastAPI TestClient
 - Optional `[api]` dependency group: `pip install deebase[api]` or `uv add deebase[api]`
 - Complete documentation in API reference, CLI reference, and implemented.md
 
@@ -167,10 +170,11 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ FK dropdown fields populated from parent tables
 - ✅ Batch import from JSON files
 - ✅ Table format, JSON, and CSV output for `deebase data list`
-- ✅ 24 new validation tests (439 total passing tests)
+- ✅ 24 validation tests
 - ✅ `examples/phase16_data_admin.py` example file
 - ✅ `examples/complete_example_with_validation.py` comprehensive validation example
 - ✅ Complete documentation updates (api_reference.md, cli_reference.md, implemented.md, fastapi_guide.md, how-it-works.md, best-practices.md, types_reference.md, README.md)
+- ✅ **508 total passing tests**
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
