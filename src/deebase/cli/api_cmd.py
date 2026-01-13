@@ -57,6 +57,7 @@ def api_init(skip_deps: bool):
     if not app_file.exists():
         app_content = '''"""FastAPI application entry point."""
 
+import os
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
@@ -69,9 +70,21 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
     await init_db()
-    yield
-    # Shutdown
     db = get_db()
+
+    # Register admin interface if enabled
+    if os.environ.get("DEEBASE_ADMIN_ENABLED") == "1" and db:
+        try:
+            from deebase.admin import create_admin_router
+            # Reflect tables for admin
+            await db.reflect()
+            app.include_router(create_admin_router(db))
+        except ImportError:
+            print("Warning: deebase.admin not available. Install with: pip install deebase[api]")
+
+    yield
+
+    # Shutdown
     if db:
         await db.close()
 
@@ -218,10 +231,13 @@ def register_routers(app: FastAPI):
 @click.option("--host", default="127.0.0.1", help="Host to bind to")
 @click.option("--port", default=8000, type=int, help="Port to bind to")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
-def api_serve(host: str, port: int, reload: bool):
+@click.option("--admin", is_flag=True, help="Enable admin interface at /admin/")
+def api_serve(host: str, port: int, reload: bool, admin: bool):
     """Start the FastAPI development server.
 
     Runs uvicorn to serve the API at http://host:port
+
+    Use --admin to enable the Django-like admin interface.
     """
     ensure_initialized()
     load_env()
@@ -231,6 +247,11 @@ def api_serve(host: str, port: int, reload: bool):
     if not app_file.exists():
         click.echo("Error: api/app.py not found. Run 'deebase api init' first.")
         sys.exit(1)
+
+    # Set admin environment variable if flag is set
+    if admin:
+        os.environ['DEEBASE_ADMIN_ENABLED'] = '1'
+        click.echo("Admin interface enabled at /admin/")
 
     # Build uvicorn command
     cmd = [
@@ -244,6 +265,8 @@ def api_serve(host: str, port: int, reload: bool):
 
     click.echo(f"Starting server at http://{host}:{port}")
     click.echo(f"API docs at http://{host}:{port}/docs")
+    if admin:
+        click.echo(f"Admin interface at http://{host}:{port}/admin/")
     click.echo()
 
     # Run uvicorn

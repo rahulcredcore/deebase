@@ -408,6 +408,10 @@ In OpenAPI/Swagger UI:
 A special exception for FK validation failures:
 
 ```python
+# Import from main module (preferred)
+from deebase import ForeignKeyValidationError
+
+# Or from api module (backward compatible)
 from deebase.api import ForeignKeyValidationError
 
 # Raised when FK references don't exist
@@ -426,6 +430,41 @@ from deebase.api import ForeignKeyValidationError
     }
 }
 ```
+
+## Validation Types
+
+Types used by the shared validation layer (`deebase.validation`):
+
+### ValidatorFunc
+
+Type alias for validator functions:
+
+```python
+from typing import Any, Callable
+
+ValidatorFunc = Callable[[Any], Any]
+```
+
+Validator functions:
+- Accept a single value
+- Return the (possibly transformed) value
+- Raise `ValueError` with message on invalid input
+
+### ValidatedTable
+
+Wrapper class that adds validation to Table write operations:
+
+```python
+from deebase import ValidatedTable
+
+vusers = ValidatedTable(
+    users,                    # Table to wrap
+    validators={...},         # Field validators
+    validate_fks=True         # Enable FK validation
+)
+```
+
+See [API Reference](api_reference.md#validation-module) for full documentation.
 
 ### Installation
 

@@ -14,8 +14,9 @@ DeeBase provides automatic REST API generation from your dataclass models using 
    - [Method 3: CRUDRouter Subclass - Hooks](#method-3-crudrouter-subclass---hooks)
 6. [Custom Validators](#custom-validators)
 7. [Exception Mapping](#exception-mapping)
-8. [CLI Commands](#cli-commands)
-9. [Complete Example](#complete-example)
+8. [Admin Interface](#admin-interface)
+9. [CLI Commands](#cli-commands)
+10. [Complete Example](#complete-example)
 
 ## Quick Start
 
@@ -365,6 +366,80 @@ DeeBase exceptions are automatically mapped to HTTP status codes:
 | `ConnectionError` | 503 Service Unavailable |
 | `InvalidOperationError` | 400 Bad Request |
 
+## Admin Interface
+
+DeeBase includes a Django-like admin interface for managing your data through a web UI.
+
+### Enabling the Admin
+
+```bash
+# Start server with admin interface
+deebase api serve --admin
+
+# Access at http://127.0.0.1:8000/admin/
+```
+
+### Features
+
+The admin interface provides:
+
+- **Dashboard** - Lists all tables in your database
+- **List View** - Paginated list of records for each table
+- **Create Form** - Form for creating new records
+- **Edit Form** - Form for updating existing records
+- **Delete Confirmation** - Safe deletion with confirmation page
+- **FK Dropdowns** - Foreign key fields show dropdown menus populated from parent tables
+- **Validation** - Uses project validators from `validators/` directory
+
+### Admin URLs
+
+| URL | Description |
+|-----|-------------|
+| `/admin/` | Dashboard with table list |
+| `/admin/{table}/` | List records in table |
+| `/admin/{table}/new` | Create new record form |
+| `/admin/{table}/{pk}` | Edit record form |
+| `/admin/{table}/{pk}/delete` | Delete confirmation |
+
+### Programmatic Usage
+
+You can also mount the admin router manually in your FastAPI app:
+
+```python
+from fastapi import FastAPI
+from deebase import Database
+from deebase.admin import create_admin_router
+
+app = FastAPI()
+db = Database("sqlite+aiosqlite:///app.db")
+
+# Mount admin router at /admin/
+app.include_router(create_admin_router(db))
+```
+
+### Validation with Admin
+
+The admin interface automatically uses validators from your project's `validators/` directory:
+
+```python
+# validators/users.py
+def validate_email(value: str) -> str:
+    if "@" not in value:
+        raise ValueError("Invalid email format")
+    return value.lower()
+
+VALIDATORS = {"email": validate_email}
+
+# validators/__init__.py
+from . import users
+
+def get_validators(table_name: str) -> dict:
+    registry = {"users": users.VALIDATORS}
+    return registry.get(table_name, {})
+```
+
+When you create or edit records through the admin, these validators are applied automatically.
+
 ## CLI Commands
 
 DeeBase provides CLI commands for API scaffolding:
@@ -377,9 +452,20 @@ deebase api init
 deebase api serve
 deebase api serve --reload --port 8080
 
+# Start with admin interface
+deebase api serve --admin
+deebase api serve --reload --admin
+
 # Generate router code from database tables
 deebase api generate users posts
 deebase api generate --all
+
+# Data management (no code needed)
+deebase data list users
+deebase data insert users -f name=Alice -f email=alice@example.com
+deebase data get users 1
+deebase data update users 1 -f status=inactive
+deebase data delete users 1 -y
 ```
 
 ## Complete Example
@@ -388,6 +474,8 @@ See the full working examples:
 
 - **[examples/phase15_fastapi.py](../examples/phase15_fastapi.py)** - All features demonstrated
 - **[examples/complete_blog_api_example.py](../examples/complete_blog_api_example.py)** - Full blog API with HTML routes
+- **[examples/phase16_data_admin.py](../examples/phase16_data_admin.py)** - Validation layer and admin interface
+- **[examples/complete_example_with_validation.py](../examples/complete_example_with_validation.py)** - Blog with validation
 
 Run them:
 

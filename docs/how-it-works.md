@@ -4139,6 +4139,199 @@ class PostRouter(CRUDRouter):
 
 ---
 
+## 18. Validation Layer (Phase 16)
+
+The validation layer provides shared validation utilities used by CLI data commands, the admin interface, and the API module.
+
+### Design Philosophy
+
+The validation layer follows these principles:
+
+1. **Opt-in, not automatic**: The core `Table` class doesn't validate - validation is added where needed
+2. **Composable**: Functions can be combined (`apply_validators` + `validate_foreign_keys`)
+3. **Wrapper pattern**: `ValidatedTable` wraps `Table` without modifying it
+4. **Shared**: Same validators work in CLI, admin, API, and custom code
+
+### apply_validators() Implementation
+
+```python
+# src/deebase/validation.py
+
+def apply_validators(
+    data: dict[str, Any],
+    validators: dict[str, Callable[[Any], Any]] | None
+) -> dict[str, Any]:
+    """Apply field validators to data."""
+    from .exceptions import ValidationError
+
+    if not validators:
+        return data
+
+    errors = []
+    result = data.copy()
+
+    for field, validator in validators.items():
+        if field in result and result[field] is not None:
+            try:
+                result[field] = validator(result[field])  # Transform and validate
+            except (ValueError, TypeError) as e:
+                errors.append({"field": field, "message": str(e)})
+
+    if errors:
+        raise ValidationError("Validation failed", errors=errors)
+
+    return result
+```
+
+Key design decisions:
+- **Return transformed data**: Validators can normalize values (trim, lowercase)
+- **Collect all errors**: Don't fail on first error - report all issues
+- **Skip None values**: Allow nullable fields to pass through
+- **Simple function interface**: Validators are just `Callable[[Any], Any]`
+
+### ValidatedTable Wrapper Pattern
+
+```python
+# src/deebase/validation.py
+
+class ValidatedTable:
+    """Wrapper that adds validation to Table write operations."""
+
+    def __init__(
+        self,
+        table: "Table",
+        validators: dict[str, Callable[[Any], Any]] | None = None,
+        validate_fks: bool = True
+    ):
+        self._table = table
+        self._validators = validators or {}
+        self._validate_fks = validate_fks
+
+    async def insert(self, data: Any) -> Any:
+        """Insert with validation."""
+        validated = await self._validate(data)
+        return await self._table.insert(validated)
+
+    # Read operations pass through unchanged
+    async def __call__(self, limit=None, with_pk=False):
+        return await self._table(limit=limit, with_pk=with_pk)
+
+    # xtra() returns new ValidatedTable with same validators
+    def xtra(self, **kwargs) -> "ValidatedTable":
+        new_table = self._table.xtra(**kwargs)
+        return ValidatedTable(new_table, self._validators, self._validate_fks)
+```
+
+This pattern allows:
+- Adding validation to any table without modifying `Table` class
+- Chaining with `xtra()` while preserving validation
+- Zero overhead for read operations (direct passthrough)
+
+### FK Validation Flow
+
+```python
+async def validate_foreign_keys(
+    db: "Database",
+    table: "Table",
+    data: dict[str, Any]
+) -> None:
+    """Validate FK references exist."""
+    errors = []
+
+    for fk in table.foreign_keys:
+        column = fk["column"]
+        if column not in data or data[column] is None:
+            continue
+
+        ref_parts = fk["references"].split(".")
+        ref_table_name = ref_parts[0]
+        ref_col = ref_parts[1] if len(ref_parts) > 1 else "id"
+
+        parent_table = db._get_table(ref_table_name)
+        if parent_table is None:
+            continue  # Skip if parent not in cache
+
+        try:
+            await parent_table[data[column]]  # Lookup by PK
+        except NotFoundError:
+            errors.append({
+                "field": column,
+                "value": data[column],
+                "message": f"Referenced {ref_table_name} with {ref_col}={data[column]} does not exist"
+            })
+
+    if errors:
+        raise ForeignKeyValidationError(errors)
+```
+
+### Admin Router Architecture
+
+The admin router (`src/deebase/admin/router.py`) provides Django-like admin functionality:
+
+```python
+def create_admin_router(db: "Database") -> APIRouter:
+    router = APIRouter(prefix="/admin", tags=["Admin"])
+    templates = Jinja2Templates(directory=templates_dir)
+
+    @router.get("/")
+    async def dashboard(request: Request):
+        """Dashboard with table list."""
+        tables = [t for t in db._tables.keys() if not t.startswith("_")]
+        return templates.TemplateResponse("dashboard.html", {...})
+
+    @router.get("/{table_name}/")
+    async def list_records(request: Request, table_name: str, page: int = 1):
+        """Paginated list view."""
+        table = db._get_table(table_name)
+        records = await table(limit=25 * page)
+        return templates.TemplateResponse("list.html", {...})
+
+    @router.post("/{table_name}/new")
+    async def create_record(request: Request, table_name: str):
+        """Create with validation."""
+        validators = _load_project_validators(table_name)  # From validators/
+        validated = apply_validators(form_data, validators)
+        await validate_foreign_keys(db, table, validated)
+        await table.insert(validated)
+```
+
+Key features:
+- **Jinja2 templates**: Standard Python templating
+- **FK dropdowns**: Populated from parent tables via `_get_fk_options()`
+- **Project validators**: Loaded from `validators/` directory
+- **Form → dict conversion**: `_parse_form_data()` handles type conversion
+
+### CLI Data Commands
+
+CLI data commands (`src/deebase/cli/data_cmd.py`) provide CRUD from the terminal:
+
+```python
+@data.command('insert')
+@click.argument('table')
+@click.option('--field', '-f', multiple=True)
+@click.option('--json', '-j', 'json_input')
+@click.option('--from-file', '-F', type=click.Path(exists=True))
+def data_insert(table, field, json_input, from_file):
+    """Insert records into a table."""
+
+    async def _insert():
+        db = Database(get_connection_string())
+        await db.reflect_table(table)
+        tbl = db._get_table(table)
+
+        # Load validators from validators/ directory
+        validators = load_project_validators(table)
+        validated = apply_validators(data, validators)
+
+        await tbl.insert(validated)
+
+    asyncio.run(_insert())
+```
+
+The sync/async bridge pattern (same as Phase 13 CLI) uses `asyncio.run()` to execute async DeeBase operations from Click's sync handlers.
+
+---
+
 ## Key Takeaways
 
 1. **SQLAlchemy Core, Not ORM**: We use Tables and Columns directly, not ORM models
@@ -4164,6 +4357,10 @@ class PostRouter(CRUDRouter):
 21. **Exception → HTTPException**: DeeBase exceptions map to appropriate HTTP status codes (404, 422, 500, etc.)
 22. **Hook Pattern**: CRUDRouter hooks (`before_create`, `after_update`, etc.) enable customization without overriding routes
 23. **HTTPException Pass-Through**: Hooks can raise `HTTPException` directly - it passes through unchanged
+24. **Opt-in Validation**: Validation is not automatic - use `ValidatedTable` or `apply_validators()` where needed
+25. **Wrapper Pattern for Validation**: `ValidatedTable` wraps `Table` to add validation without modifying core class
+26. **Shared Validators**: Same validators work in CLI, admin, API, and custom code via `validators/` directory
+27. **Admin Interface**: Django-like admin via Jinja2 templates at `/admin/` route
 
 ## Further Reading
 

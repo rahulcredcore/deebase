@@ -12,6 +12,11 @@ Commands:
     deebase table list          - List tables
     deebase table schema <name> - Show table schema
     deebase table drop <name>   - Drop a table
+    deebase data insert ...     - Insert record(s)
+    deebase data list <table>   - List records
+    deebase data get <table> <pk> - Get a record
+    deebase data update ...     - Update a record
+    deebase data delete ...     - Delete a record
     deebase index create ...    - Create an index
     deebase index list <table>  - List indexes on a table
     deebase index drop <name>   - Drop an index
@@ -32,6 +37,7 @@ import click
 from .init_cmd import init
 from .db_cmd import db, sql
 from .table_cmd import table
+from .data_cmd import data
 from .index_cmd import index
 from .view_cmd import view
 from .codegen_cmd import codegen
@@ -55,6 +61,7 @@ main.add_command(init)
 main.add_command(db)
 main.add_command(sql)
 main.add_command(table)
+main.add_command(data)
 main.add_command(index)
 main.add_command(view)
 main.add_command(codegen)

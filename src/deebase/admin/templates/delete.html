@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Delete {{ table_name }} #{{ pk }} - DeeBase Admin{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/admin/">Dashboard</a>
+    <span>&gt;</span>
+    <a href="/admin/{{ table_name }}/">{{ table_name }}</a>
+    <span>&gt;</span>
+    <a href="/admin/{{ table_name }}/{{ pk }}">#{{ pk }}</a>
+    <span>&gt;</span>
+    Delete
+</div>
+
+<div class="page-header">
+    <h1>Delete {{ table_name }} #{{ pk }}</h1>
+</div>
+
+<div class="card">
+    <div class="alert alert-error" style="margin-bottom: 1.5rem;">
+        <strong>Warning:</strong> This action cannot be undone. The record will be permanently deleted.
+    </div>
+
+    <h3 style="margin-bottom: 1rem;">Record to delete:</h3>
+
+    <table style="margin-bottom: 1.5rem;">
+        <tbody>
+            {% for key, value in record.items() %}
+            <tr>
+                <th style="text-align: left; width: 200px;">{{ key }}</th>
+                <td>
+                    {% if value is none %}
+                        <span style="color: #9ca3af;">null</span>
+                    {% elif value is string and value|length > 100 %}
+                        {{ value[:100] }}...
+                    {% else %}
+                        {{ value }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <form method="post" action="/admin/{{ table_name }}/{{ pk }}/delete">
+        <div class="form-actions">
+            <button type="submit" class="btn btn-danger">Yes, Delete</button>
+            <a href="/admin/{{ table_name }}/{{ pk }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

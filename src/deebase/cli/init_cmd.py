@@ -8,6 +8,7 @@ Creates project structure:
     data/               - SQLite database files
     migrations/         - Migration files
     models/             - Generated model files
+    validators/         - Shared validators for CLI and API
 """
 
 import click
@@ -104,6 +105,7 @@ def init(ctx, package: str, new_package: str, postgres: bool, name: str):
         '.deebase',
         'data',
         'migrations',
+        'validators',  # Shared validators for CLI and API
     ]
 
     # Add models directory for standalone mode
@@ -176,6 +178,18 @@ def init(ctx, package: str, new_package: str, postgres: bool, name: str):
         if not models_init.exists():
             models_init.write_text('"""Generated database models."""\n')
 
+    # Create validators/__init__.py and example.py
+    validators_dir = project_root / 'validators'
+    validators_init = validators_dir / '__init__.py'
+    if not validators_init.exists():
+        validators_init.write_text(_get_validators_init_template())
+        click.echo("  Created: validators/__init__.py")
+
+    validators_example = validators_dir / 'example.py'
+    if not validators_example.exists():
+        validators_example.write_text(_get_validators_example_template())
+        click.echo("  Created: validators/example.py")
+
     click.echo("")
     click.echo(f"Project '{project_name}' initialized successfully!")
     click.echo("")
@@ -225,4 +239,113 @@ async def upgrade(db: Database):
 async def downgrade(db: Database):
     """Reverse this migration."""
     pass
+'''
+
+
+def _get_validators_init_template() -> str:
+    """Get the template for validators/__init__.py."""
+    return '''"""Validator registry for all tables.
+
+Used by both CLI (deebase data) and API routes.
+See validators/example.py for how to create validators.
+
+To add validators for a table:
+1. Create a file: validators/your_table.py
+2. Define validator functions and VALIDATORS dict
+3. Import and register here
+
+Example:
+    from . import users
+
+    VALIDATORS = {
+        "users": users.VALIDATORS,
+    }
+"""
+
+# Table name -> validators dict
+VALIDATORS: dict[str, dict] = {}
+
+
+def get_validators(table_name: str) -> dict:
+    """Get validators for a table.
+
+    Args:
+        table_name: Name of the table
+
+    Returns:
+        Dict of field_name -> validator_function
+    """
+    return VALIDATORS.get(table_name, {})
+'''
+
+
+def _get_validators_example_template() -> str:
+    """Get the template for validators/example.py."""
+    return '''"""Example validators - copy this file for your tables.
+
+Validators are plain functions that:
+- Receive a field value
+- Return the (possibly transformed) value
+- Raise ValueError with message on invalid input
+
+These validators are used by BOTH:
+- CLI: deebase data insert/update
+- API: create_crud_router(validators=...)
+- Admin: Web forms
+"""
+import re
+
+
+def validate_email(value: str) -> str:
+    """Validate and normalize email format."""
+    if not re.match(r"^[^@]+@[^@]+\\.[^@]+$", value):
+        raise ValueError("Invalid email format")
+    return value.lower()  # Normalize
+
+
+def validate_non_empty(value: str) -> str:
+    """Ensure string is not empty or whitespace."""
+    if not value or not value.strip():
+        raise ValueError("Cannot be empty")
+    return value.strip()
+
+
+def validate_positive(value: int) -> int:
+    """Ensure integer is positive."""
+    if value <= 0:
+        raise ValueError("Must be positive")
+    return value
+
+
+def validate_length(min_len: int = 0, max_len: int = None):
+    """Create a length validator.
+
+    Args:
+        min_len: Minimum length (default: 0)
+        max_len: Maximum length (default: None = unlimited)
+
+    Returns:
+        Validator function
+
+    Example:
+        >>> validators = {
+        ...     "username": validate_length(3, 20),
+        ...     "bio": validate_length(max_len=500),
+        ... }
+    """
+    def validator(value: str) -> str:
+        if len(value) < min_len:
+            raise ValueError(f"Must be at least {min_len} characters")
+        if max_len is not None and len(value) > max_len:
+            raise ValueError(f"Must be at most {max_len} characters")
+        return value
+    return validator
+
+
+# Register validators for this table
+# Uncomment and modify as needed:
+VALIDATORS = {
+    # "email": validate_email,
+    # "name": validate_non_empty,
+}
 '''

@@ -3895,6 +3895,168 @@ asyncio.run(main())
 
 ---
 
+## Phase 16: Data Management & Admin Interface ✅ COMPLETE
+
+Phase 16 adds a shared validation layer, CLI data commands for CRUD operations, and a Django-like admin interface.
+
+### Shared Validation Layer
+
+```python
+from deebase import (
+    apply_validators,
+    validate_foreign_keys,
+    ValidatedTable,
+    ValidationError,
+    ForeignKeyValidationError,
+)
+
+# Define validators (simple functions)
+validators = {
+    "email": lambda v: v.lower().strip() if v else v,
+    "name": lambda v: v.strip() if v else v,
+}
+
+# Apply validators to data
+data = {"email": "ALICE@EXAMPLE.COM", "name": "  Alice  "}
+validated = apply_validators(data, validators)
+# {"email": "alice@example.com", "name": "Alice"}
+
+# Validate FK references exist before insert
+await validate_foreign_keys(db, posts, {"author_id": 999})
+# Raises ForeignKeyValidationError if author doesn't exist
+```
+
+### ValidatedTable Wrapper
+
+```python
+from deebase import ValidatedTable
+
+# Wrap table with validators
+validators = {
+    "email": lambda v: v.lower().strip() if v else v,
+    "name": lambda v: v.strip() if v else v,
+}
+vusers = ValidatedTable(users, validators=validators, validate_fks=True)
+
+# All writes automatically validate
+user = await vusers.insert({
+    "name": "  Alice  ",  # Trimmed automatically
+    "email": "ALICE@EXAMPLE.COM",  # Lowercased automatically
+})
+
+# Read operations pass through unchanged (no overhead)
+all_users = await vusers()
+
+# xtra() returns new ValidatedTable with same validators
+active_vusers = vusers.xtra(status="active")
+```
+
+### CLI Data Commands
+
+```bash
+# Initialize project (creates validators/ directory)
+deebase init
+
+# Insert records
+deebase data insert users -f name=Alice -f email=alice@example.com
+deebase data insert users -j '{"name": "Bob", "email": "bob@example.com"}'
+deebase data insert users -F users.json  # Batch import
+
+# List records
+deebase data list users                  # Table format
+deebase data list users --format json    # JSON format
+deebase data list users --format csv     # CSV format
+deebase data list users --limit 10       # Limit results
+
+# Get single record
+deebase data get users 1
+deebase data get users 1 --format table
+
+# Update record
+deebase data update users 1 -f status=inactive
+deebase data update users 1 -j '{"name": "Alice Smith"}'
+
+# Delete record
+deebase data delete users 1              # With confirmation
+deebase data delete users 1 -y           # Skip confirmation
+```
+
+### Admin Web Interface
+
+```bash
+# Start with admin interface
+deebase api serve --admin
+
+# Access at:
+#   Dashboard:     http://127.0.0.1:8000/admin/
+#   Table list:    http://127.0.0.1:8000/admin/users/
+#   Create form:   http://127.0.0.1:8000/admin/users/new
+#   Edit form:     http://127.0.0.1:8000/admin/users/1
+#   Delete:        http://127.0.0.1:8000/admin/users/1/delete
+```
+
+**Admin Features:**
+- Dashboard listing all tables
+- Paginated list views
+- Create/edit forms with validation
+- FK dropdown fields populated from parent tables
+- Delete confirmation pages
+
+### Project Validators Directory
+
+After `deebase init`, create validators in `validators/`:
+
+```python
+# validators/users.py
+def validate_email(value: str) -> str:
+    if "@" not in value:
+        raise ValueError("Invalid email format")
+    return value.lower().strip()
+
+def validate_name(value: str) -> str:
+    return value.strip()
+
+VALIDATORS = {"email": validate_email, "name": validate_name}
+
+# validators/__init__.py
+from . import users
+
+def get_validators(table_name: str) -> dict:
+    registry = {"users": users.VALIDATORS}
+    return registry.get(table_name, {})
+```
+
+CLI data commands and admin interface automatically use these validators.
+
+### Programmatic Admin Router
+
+```python
+from fastapi import FastAPI
+from deebase import Database
+from deebase.admin import create_admin_router
+
+app = FastAPI()
+db = Database("sqlite+aiosqlite:///app.db")
+
+# Mount admin at /admin/
+app.include_router(create_admin_router(db))
+```
+
+**Phase 16 Deliverables:**
+- ✅ Shared validation module (`deebase.validation`)
+- ✅ `apply_validators()` and `apply_validators_async()` functions
+- ✅ `validate_foreign_keys()` for FK existence checking
+- ✅ `ValidatedTable` wrapper class
+- ✅ `ForeignKeyValidationError` exception
+- ✅ CLI data commands (`deebase data insert/list/get/update/delete`)
+- ✅ `validators/` directory created by `deebase init`
+- ✅ Admin web interface (`deebase api serve --admin`)
+- ✅ `create_admin_router()` for programmatic admin mounting
+- ✅ FK dropdown fields in admin forms
+- ✅ 24 new validation tests (439 total passing)
+
+---
+
 ## Dependencies
 
 - Python 3.14+
@@ -3917,7 +4079,7 @@ The codebase is designed to be database-agnostic through SQLAlchemy's dialect sy
 
 ## Summary
 
-**All 15 Phases Complete! 🎉**
+**All 16 Phases Complete! 🎉**
 
 DeeBase is now feature-complete with:
 - ✅ **Async/await support** - Modern Python async for FastAPI and other frameworks
@@ -3936,9 +4098,12 @@ DeeBase is now feature-complete with:
 - ✅ **Migration runner** - Apply/rollback migrations with `migrate up/down` and version tracking
 - ✅ **Database backups** - Timestamped backups via `deebase db backup`
 - ✅ **FastAPI integration** - Auto-generated CRUD routers with FK validation and custom hooks
+- ✅ **Validation layer** - Shared validators used by CLI, admin, and API
+- ✅ **Admin interface** - Django-like admin UI at `/admin/`
+- ✅ **CLI data commands** - CRUD from the terminal with `deebase data`
 - ✅ **Comprehensive error handling** - 6 specific exception types with rich context
 - ✅ **Code generation** - Export database schemas as Python dataclasses
 - ✅ **Complete documentation** - API reference, migration guide, CLI reference, examples
-- ✅ **409 passing tests** - Comprehensive test coverage
+- ✅ **439 passing tests** - Comprehensive test coverage
 
 **Ready for production use!**

@@ -17,6 +17,7 @@ This guide helps you make informed decisions when using DeeBase, explaining the 
 - [Schema Evolution](#schema-evolution)
 - [CLI vs Python API: Choosing Your Interface](#cli-vs-python-api-choosing-your-interface)
 - [FastAPI Integration: Building REST APIs](#fastapi-integration-building-rest-apis)
+- [Validation: Data Quality at the Application Layer](#validation-data-quality-at-the-application-layer)
 
 ---
 
@@ -2026,6 +2027,169 @@ This installs: fastapi, pydantic, fastcore, uvicorn, jinja2.
 
 ---
 
+## Validation: Data Quality at the Application Layer
+
+DeeBase provides a shared validation layer that can be used by CLI commands, the admin interface, and custom application code. Understanding when and how to use validation is essential for maintaining data quality.
+
+### When to Use Validation
+
+**Use validation when:**
+- Accepting user input (forms, API requests, CLI input)
+- Normalizing data (trim whitespace, lowercase emails)
+- Enforcing business rules before database operations
+- Providing better error messages than database constraints
+
+**Don't use validation for:**
+- Trusted internal data (already validated upstream)
+- High-performance bulk operations (validate once, insert many)
+- Database-level constraints (use FK constraints, unique indexes)
+
+### Validation Approaches
+
+#### Approach 1: Direct apply_validators()
+
+Use for one-off validation in custom code:
+
+```python
+from deebase import apply_validators, ValidationError
+
+validators = {
+    "email": lambda v: v.lower().strip() if v else v,
+    "name": lambda v: v.strip() if v else v,
+}
+
+try:
+    validated = apply_validators(user_data, validators)
+    await users.insert(validated)
+except ValidationError as e:
+    print(f"Invalid fields: {e.errors}")
+```
+
+**Best for:** Custom endpoints, one-off operations, testing validators.
+
+#### Approach 2: ValidatedTable Wrapper
+
+Use for consistent validation across all writes:
+
+```python
+from deebase import ValidatedTable
+
+# Wrap table once
+vusers = ValidatedTable(users, validators=validators, validate_fks=True)
+
+# All writes now validate automatically
+await vusers.insert({"name": "  Alice  ", "email": "ALICE@EXAMPLE.COM"})
+# Normalized: name="Alice", email="alice@example.com"
+
+# Read operations pass through
+all_users = await vusers()  # No validation overhead
+```
+
+**Best for:** Application code where you want consistent validation.
+
+#### Approach 3: Project Validators Directory
+
+Use for CLI and admin validation:
+
+```python
+# validators/users.py
+def validate_email(value: str) -> str:
+    if "@" not in value:
+        raise ValueError("Invalid email format")
+    return value.lower().strip()
+
+VALIDATORS = {"email": validate_email}
+
+# validators/__init__.py
+from . import users
+
+def get_validators(table_name: str) -> dict:
+    registry = {"users": users.VALIDATORS}
+    return registry.get(table_name, {})
+```
+
+**Best for:** CLI data commands, admin interface, shared validators.
+
+### Validator Functions
+
+Write validator functions that:
+1. Accept a single value
+2. Return the (possibly transformed) value
+3. Raise `ValueError` with a message on invalid input
+
+```python
+def validate_email(value: str) -> str:
+    """Validate and normalize email."""
+    if not value:
+        return value  # Allow None/empty to pass through
+    if "@" not in value:
+        raise ValueError("Invalid email format")
+    return value.lower().strip()
+
+def validate_positive(value: int) -> int:
+    """Ensure positive number."""
+    if value <= 0:
+        raise ValueError("Must be positive")
+    return value
+
+def validate_slug(value: str) -> str:
+    """Normalize URL slug."""
+    return value.lower().replace(" ", "-")[:50]
+```
+
+### FK Validation
+
+Validate foreign key references exist before insert/update:
+
+```python
+from deebase import validate_foreign_keys, ForeignKeyValidationError
+
+try:
+    await validate_foreign_keys(db, posts, {"author_id": 999})
+except ForeignKeyValidationError as e:
+    print(f"Invalid FK: {e.errors[0]['message']}")
+    # "Referenced user with id=999 does not exist"
+```
+
+**Why use application-level FK validation?**
+- Better error messages than database constraint failures
+- Check multiple FKs in one operation
+- Report all invalid FKs, not just the first one
+- Easier to handle in API responses
+
+### Validation Best Practices
+
+1. **Validate at boundaries** - Validate when data enters your system (API, CLI, forms)
+
+2. **Normalize early** - Transform data (trim, lowercase) early so the rest of your code works with clean data
+
+3. **Fail fast** - Return all validation errors at once, don't fail on the first error
+
+4. **Don't over-validate** - Trust data from internal sources, validate only untrusted input
+
+5. **Keep validators pure** - Validators should be pure functions without side effects
+
+6. **Use database constraints too** - Validation is a complement to, not a replacement for, database constraints
+
+```python
+# ✅ Good: Validate user input, use DB constraints as backup
+async def create_user(data: dict):
+    validated = apply_validators(data, validators)  # App validation
+    try:
+        return await users.insert(validated)
+    except IntegrityError:
+        # DB caught something we missed (race condition, etc.)
+        raise HTTPException(422, "Email already exists")
+
+# ❌ Bad: Skip DB constraints and rely only on validation
+async def create_user(data: dict):
+    validated = apply_validators(data, validators)
+    # If two requests validate simultaneously, both might pass!
+    return await users.insert(validated)
+```
+
+---
+
 ## Summary: Quick Decision Guide
 
 | Scenario | Recommendation |
@@ -2054,6 +2218,12 @@ This installs: fastapi, pydantic, fastcore, uvicorn, jinja2.
 | **Disable API routes** | Use `exclude={"delete"}` parameter |
 | **Custom API handlers** | Use `overrides={"create": handler}` |
 | **API validation errors** | Raise `HTTPException` in hooks |
+| **User input validation** | Use `apply_validators()` or `ValidatedTable` |
+| **FK validation** | Use `validate_foreign_keys()` or `validate_fks=True` |
+| **Consistent validation** | Use `ValidatedTable` wrapper |
+| **CLI/admin validation** | Use `validators/` directory |
+| **Data entry via CLI** | Use `deebase data insert/list/get/update/delete` |
+| **Web data management** | Use `deebase api serve --admin` |
 
 ---
 
