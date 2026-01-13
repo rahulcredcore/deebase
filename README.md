@@ -705,7 +705,7 @@ uv run pytest --cov=src/deebase --cov-report=html
 uv run pytest tests/test_crud.py -v
 ```
 
-All 439 tests passing ✅
+All 494 tests passing ✅
 
 ### Project Structure
 
@@ -731,7 +731,7 @@ deebase/
 │       ├── migration_runner.py # MigrationRunner class
 │       ├── backup.py         # Database backup functions
 │       └── parser.py         # Field:type parser
-├── tests/                     # 409 passing tests
+├── tests/                     # 494 passing tests
 ├── examples/                  # Runnable examples
 ├── docs/                      # Documentation
 └── README.md                  # This file

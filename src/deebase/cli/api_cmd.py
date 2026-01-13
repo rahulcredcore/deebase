@@ -306,9 +306,7 @@ async def _generate_routers(tables: tuple, all_tables: bool, output: str):
     from deebase import Database
 
     config = load_config()
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        db_url = f"sqlite+aiosqlite:///{config.get('database', {}).get('sqlite_path', 'data/app.db')}"
+    db_url = config.get_database_url()
 
     db = Database(db_url)
 

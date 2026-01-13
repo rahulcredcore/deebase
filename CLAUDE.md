@@ -70,7 +70,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Migrations (`MigrationRunner`, `migrate up/down`, `db backup`)
 - ✅ FastAPI Integration (`create_crud_router()`, `CRUDRouter` with hooks, FK validation)
 - ✅ Complete documentation (API reference, migration guide, CLI reference, examples)
-- ✅ 439 passing tests (375 core + 34 API + 24 validation + 6 misc)
+- ✅ 494 passing tests (375 core + 34 API + 24 validation + 55 CLI + 6 misc)
 
 **Phase 8 Deliverables:**
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`

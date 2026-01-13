@@ -2479,7 +2479,7 @@ def test_create_user(client):
 - Updated `deebase init` to create validators/ directory
 - Updated `api serve --admin` flag to enable admin interface
 - `ForeignKeyValidationError` moved to main exceptions.py
-- 24 new validation tests (439 total passing tests)
+- 24 new validation tests + 55 CLI command tests (494 total passing tests)
 - `examples/phase16_data_admin.py` - Phase 16 example
 
 #### Design Principles
