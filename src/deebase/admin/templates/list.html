@@ -27,7 +27,7 @@
         </thead>
         <tbody>
             {% for record in records %}
-            <tr>
+            <tr class="clickable-row" onclick="window.location='/admin/{{ table_name }}/{{ record[pk_col] }}'">
                 {% for col in columns %}
                 <td>
                     {% set value = record[col] %}
@@ -40,8 +40,9 @@
                     {% endif %}
                 </td>
                 {% endfor %}
-                <td class="actions">
-                    <a href="/admin/{{ table_name }}/{{ record[pk_col] }}">Edit</a>
+                <td class="actions" onclick="event.stopPropagation()">
+                    <a href="/admin/{{ table_name }}/{{ record[pk_col] }}">View</a>
+                    <a href="/admin/{{ table_name }}/{{ record[pk_col] }}/edit">Edit</a>
                     <a href="/admin/{{ table_name }}/{{ record[pk_col] }}/delete" style="color: #dc2626;">Delete</a>
                 </td>
             </tr>

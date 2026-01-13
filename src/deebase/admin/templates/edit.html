@@ -8,7 +8,9 @@
     <span>&gt;</span>
     <a href="/admin/{{ table_name }}/">{{ table_name }}</a>
     <span>&gt;</span>
-    #{{ pk }}
+    <a href="/admin/{{ table_name }}/{{ pk }}">#{{ pk }}</a>
+    <span>&gt;</span>
+    Edit
 </div>
 
 <div class="page-header">
@@ -23,7 +25,7 @@
     </div>
     {% endif %}
 
-    <form method="post" action="/admin/{{ table_name }}/{{ pk }}">
+    <form method="post" action="/admin/{{ table_name }}/{{ pk }}/edit">
         {% for col in columns %}
         <div class="form-group{% if col.is_pk %} disabled{% endif %}">
             <label for="{{ col.name }}">{{ col.name }}{% if col.is_pk %} (PK){% endif %}</label>
@@ -86,7 +88,7 @@
 
         <div class="form-actions">
             <button type="submit" class="btn btn-primary">Save Changes</button>
-            <a href="/admin/{{ table_name }}/" class="btn btn-secondary">Cancel</a>
+            <a href="/admin/{{ table_name }}/{{ pk }}" class="btn btn-secondary">Cancel</a>
         </div>
     </form>
 </div>
