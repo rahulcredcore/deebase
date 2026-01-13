@@ -70,7 +70,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Migrations (`MigrationRunner`, `migrate up/down`, `db backup`)
 - ✅ FastAPI Integration (`create_crud_router()`, `CRUDRouter` with hooks, FK validation)
 - ✅ Complete documentation (API reference, migration guide, CLI reference, examples)
-- ✅ 409 passing tests (375 core + 34 API tests)
+- ✅ 439 passing tests (375 core + 34 API + 24 validation + 6 misc)
 
 **Phase 8 Deliverables:**
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`
@@ -166,13 +166,15 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ Table format, JSON, and CSV output for `deebase data list`
 - ✅ 24 new validation tests (439 total passing tests)
 - ✅ `examples/phase16_data_admin.py` example file
+- ✅ `examples/complete_example_with_validation.py` comprehensive validation example
+- ✅ Complete documentation updates (api_reference.md, cli_reference.md, implemented.md, fastapi_guide.md, how-it-works.md, best-practices.md, types_reference.md, README.md)
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
 
 ## Basic Usage
 
-### Working Now (Phases 1-14)
+### Working Now (Phases 1-16)
 
 ```python
 from deebase import Database, Text, Index, NotFoundError
@@ -485,22 +487,35 @@ src/deebase/
 ├── view.py               # View support (read-only tables)
 ├── types.py              # Python → SQLAlchemy type mapping
 ├── dataclass_utils.py    # Dataclass generation and handling
-├── exceptions.py         # Custom exceptions (NotFoundError, etc.)
-└── cli/                  # Command-line interface (Phase 13+14)
-    ├── __init__.py       # Click group and main()
-    ├── init_cmd.py       # deebase init
-    ├── db_cmd.py         # deebase db/sql commands
-    ├── table_cmd.py      # deebase table commands
-    ├── index_cmd.py      # deebase index commands
-    ├── view_cmd.py       # deebase view commands
-    ├── codegen_cmd.py    # deebase codegen
-    ├── migrate_cmd.py    # deebase migrate commands
-    ├── migration_runner.py  # MigrationRunner class (Phase 14)
-    ├── backup.py         # Database backup functions (Phase 14)
-    ├── parser.py         # field:type syntax parser
-    ├── generator.py      # Python code generator
-    ├── state.py          # Config and migration state
-    └── utils.py          # CLI utilities
+├── exceptions.py         # Custom exceptions (NotFoundError, ForeignKeyValidationError, etc.)
+├── validation.py         # Shared validation layer (Phase 16)
+├── cli/                  # Command-line interface (Phase 13+14+16)
+│   ├── __init__.py       # Click group and main()
+│   ├── init_cmd.py       # deebase init (creates validators/)
+│   ├── db_cmd.py         # deebase db/sql commands
+│   ├── table_cmd.py      # deebase table commands
+│   ├── index_cmd.py      # deebase index commands
+│   ├── view_cmd.py       # deebase view commands
+│   ├── codegen_cmd.py    # deebase codegen
+│   ├── migrate_cmd.py    # deebase migrate commands
+│   ├── api_cmd.py        # deebase api commands (Phase 15+16)
+│   ├── data_cmd.py       # deebase data commands (Phase 16)
+│   ├── migration_runner.py  # MigrationRunner class (Phase 14)
+│   ├── backup.py         # Database backup functions (Phase 14)
+│   ├── parser.py         # field:type syntax parser
+│   ├── generator.py      # Python code generator
+│   ├── state.py          # Config and migration state
+│   └── utils.py          # CLI utilities
+├── api/                  # FastAPI integration (Phase 15)
+│   ├── __init__.py       # API module exports
+│   ├── router.py         # CRUDRouter and create_crud_router()
+│   ├── models.py         # Pydantic model generation
+│   ├── validators.py     # API validators (re-exports from validation.py)
+│   └── exceptions.py     # API exceptions (re-exports ForeignKeyValidationError)
+└── admin/                # Admin interface (Phase 16)
+    ├── __init__.py       # Admin module exports
+    ├── router.py         # Admin router (create_admin_router)
+    └── templates/        # Jinja2 templates (dashboard, list, create, detail, delete)
 ```
 
 ## Implementation Approach
