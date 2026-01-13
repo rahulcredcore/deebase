@@ -2,6 +2,30 @@
 
 This folder contains runnable examples demonstrating DeeBase features.
 
+## Example Files
+
+| Phase | File | Description |
+|-------|------|-------------|
+| 1 | [phase1_raw_sql.py](./phase1_raw_sql.py) | Raw SQL queries |
+| 2 | [phase2_table_creation.py](./phase2_table_creation.py) | Creating tables from Python classes |
+| 3 | [phase3_crud_operations.py](./phase3_crud_operations.py) | Full CRUD operations |
+| 4 | [phase4_dataclass_support.py](./phase4_dataclass_support.py) | Type-safe operations with dataclasses |
+| 5 | [phase5_reflection.py](./phase5_reflection.py) | Working with existing databases |
+| 7 | [phase7_views.py](./phase7_views.py) | Database views |
+| 8 | [phase8_polish_utilities.py](./phase8_polish_utilities.py) | Error handling & code generation |
+| 9 | [phase9_transactions.py](./phase9_transactions.py) | Multi-operation atomic transactions |
+| 10 | [phase10_foreign_keys_defaults.py](./phase10_foreign_keys_defaults.py) | Foreign keys & defaults |
+| 11 | [phase11_fk_navigation.py](./phase11_fk_navigation.py) | FK relationship navigation |
+| 12 | [phase12_indexes.py](./phase12_indexes.py) | Query optimization with indexes |
+| 13 | [phase13_cli.py](./phase13_cli.py) | CLI (demonstrates what CLI does under the hood) |
+| 14 | [phase14_migrations.py](./phase14_migrations.py) | Database migrations with MigrationRunner |
+| 15 | [phase15_fastapi.py](./phase15_fastapi.py) | FastAPI integration with CRUD routers |
+| - | [views_joins_ctes.py](./views_joins_ctes.py) | Using views for JOINs and CTEs |
+| - | [complete_example.py](./complete_example.py) | Full-featured blog showcasing all capabilities |
+| - | [complete_cli_example.py](./complete_cli_example.py) | End-to-end CLI workflow |
+| - | [complete_migrations_example.py](./complete_migrations_example.py) | Full migration workflow with CLI |
+| - | [complete_blog_api_example.py](./complete_blog_api_example.py) | Complete blog REST API with hooks |
+
 ## Running Examples
 
 All examples use in-memory SQLite databases and are fully self-contained:
@@ -46,6 +70,9 @@ uv run examples/phase13_cli.py
 # Run Phase 14 example (migrations)
 uv run examples/phase14_migrations.py
 
+# Run Phase 15 example (FastAPI)
+uv run examples/phase15_fastapi.py
+
 # Run views for JOINs and CTEs example
 uv run examples/views_joins_ctes.py
 
@@ -54,6 +81,9 @@ uv run examples/complete_example.py
 
 # Run complete CLI example (uses actual CLI commands)
 uv run examples/complete_cli_example.py
+
+# Run complete blog API example
+uv run examples/complete_blog_api_example.py
 ```
 
 ## Examples

@@ -545,6 +545,7 @@ Runnable examples are available in the [`examples/`](examples/) folder:
 - **[phase14_migrations.py](examples/phase14_migrations.py)** - Database migrations with MigrationRunner
 - **[phase15_fastapi.py](examples/phase15_fastapi.py)** - FastAPI integration with CRUD routers
 - **[complete_example.py](examples/complete_example.py)** - Full-featured blog showcasing all capabilities
+- **[complete_cli_example.py](examples/complete_cli_example.py)** - End-to-end CLI workflow for building a blog
 - **[complete_blog_api_example.py](examples/complete_blog_api_example.py)** - Complete blog REST API with hooks and FK validation
 - **[complete_migrations_example.py](examples/complete_migrations_example.py)** - Full migration workflow with CLI
 
@@ -690,7 +691,7 @@ uv run pytest --cov=src/deebase --cov-report=html
 uv run pytest tests/test_crud.py -v
 ```
 
-All 375 tests passing ✅
+All 409 tests passing ✅
 
 ### Project Structure
 
@@ -716,7 +717,7 @@ deebase/
 │       ├── migration_runner.py # MigrationRunner class
 │       ├── backup.py         # Database backup functions
 │       └── parser.py         # Field:type parser
-├── tests/                     # 375 passing tests
+├── tests/                     # 409 passing tests
 ├── examples/                  # Runnable examples
 ├── docs/                      # Documentation
 └── README.md                  # This file
@@ -743,7 +744,7 @@ DeeBase follows these principles:
 
 ## Status
 
-**All 14 development phases complete! Ready for production use.**
+**All 15 development phases complete! Ready for production use.**
 
 - ✅ Phase 1: Core Infrastructure
 - ✅ Phase 2: Table Creation & Schema
@@ -759,12 +760,14 @@ DeeBase follows these principles:
 - ✅ Phase 12: Indexes
 - ✅ Phase 13: Command-Line Interface
 - ✅ Phase 14: Migrations
+- ✅ Phase 15: FastAPI Integration
+- 🚧 Phase 16: Data Management & Admin (Planned)
 
 See [Implementation Plan](docs/implementation_plan.md) for details.
 
 ## Contributing
 
-This project follows a 14-phase development plan. See [docs/implementation_plan.md](docs/implementation_plan.md) for the roadmap.
+See [docs/implementation_plan.md](docs/implementation_plan.md) for the development roadmap.
 
 ## License
 

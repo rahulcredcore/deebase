@@ -28,6 +28,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ## Project Status
 
 ✅ **All 15 Phases Complete** - Production-ready with full FastAPI integration
+🚧 **Phase 16 Planned** - Data Management & Admin Interface
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
 ✅ **Phase 2 Complete** - Table Creation & Schema
@@ -44,6 +45,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 13 Complete** - CLI (Click-based, migration-ready)
 ✅ **Phase 14 Complete** - Migrations (simple runner, fastmigrate-style API)
 ✅ **Phase 15 Complete** - FastAPI Integration (CRUD routers, Pydantic models, FK validation)
+🚧 **Phase 16 Planned** - Data Management & Admin Interface (CLI data commands, Django-like admin UI)
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
@@ -154,6 +156,16 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - 34 new tests using FastAPI TestClient (409 total passing tests)
 - Optional `[api]` dependency group: `pip install deebase[api]` or `uv add deebase[api]`
 - Complete documentation in API reference, CLI reference, and implemented.md
+
+**Phase 16 Planned Features (Data Management & Admin Interface):**
+- Shared validation layer (`deebase.validation`) with `ValidatedTable` wrapper class
+- `validators/` directory created by `deebase init` for project-specific validators
+- CLI data commands: `deebase data insert/list/get/update/delete`
+- Django-like admin interface at `/admin/` (enabled with `--admin` flag)
+- FK dropdown fields populated from parent tables
+- Batch import from JSON files
+- Table format, JSON, and CSV output for `deebase data list`
+- See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed Phase 16 plan
 
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.

@@ -2466,6 +2466,961 @@ def test_create_user(client):
 
 ---
 
+### Phase 16: Data Management & Admin Interface
+
+**Status:** Planned
+
+**Goal:** Add comprehensive data management capabilities through CLI commands and a Django-like admin web interface. Both share a unified validation layer, ensuring consistency between terminal and web operations.
+
+#### Design Principles
+
+1. **Validation is opt-in** - Core Table class stays simple; validation is application-layer
+2. **Shared validators** - CLI and API use the same validator functions from project's `validators/` directory
+3. **Independence** - CLI data commands work without FastAPI installed
+4. **Feature parity** - Whatever CLI can do, admin UI can do
+
+#### Architecture Overview
+
+```
+                    ┌─────────────────────┐
+                    │  validators/        │  ← Project-specific
+                    │  (user-defined)     │     validator functions
+                    └──────────┬──────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              │                │                │
+              ▼                ▼                ▼
+    ┌─────────────────┐ ┌─────────────┐ ┌─────────────┐
+    │ deebase data    │ │ API routes  │ │ Admin UI    │
+    │ (CLI commands)  │ │ (FastAPI)   │ │ (forms)     │
+    └────────┬────────┘ └──────┬──────┘ └──────┬──────┘
+             │                 │               │
+             └────────────────┬┴───────────────┘
+                              │
+                              ▼
+                    ┌─────────────────────┐
+                    │ deebase.validation  │  ← Shared validation
+                    │ - apply_validators  │     engine (in library)
+                    │ - validate_fks      │
+                    │ - ValidatedTable    │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │ deebase.Table       │  ← Core CRUD
+                    │ (no validation)     │     (DB handles constraints)
+                    └─────────────────────┘
+```
+
+#### Part 1: Shared Validation Layer
+
+**Goal:** Extract validation utilities so CLI, API, and admin can share them.
+
+**New file: `src/deebase/validation.py`**
+
+```python
+"""Shared validation utilities for DeeBase.
+
+Used by CLI (deebase data), API (create_crud_router), and admin UI.
+The core Table class does NOT use these automatically - they are opt-in.
+"""
+
+from deebase.exceptions import ForeignKeyValidationError, ValidationError
+
+
+def apply_validators(data: dict, validators: dict) -> dict:
+    """Apply field validators to data.
+
+    Args:
+        data: Record data dict
+        validators: Dict of field_name → validator_function
+
+    Returns:
+        Validated (possibly transformed) data
+
+    Raises:
+        ValidationError: If any validator fails
+    """
+    errors = []
+    result = data.copy()
+
+    for field, validator in validators.items():
+        if field in result and result[field] is not None:
+            try:
+                result[field] = validator(result[field])
+            except (ValueError, TypeError) as e:
+                errors.append({"field": field, "message": str(e)})
+
+    if errors:
+        raise ValidationError("Validation failed", errors=errors)
+
+    return result
+
+
+async def validate_foreign_keys(db, table, data: dict) -> None:
+    """Validate FK references exist.
+
+    Args:
+        db: Database instance
+        table: Table to validate against
+        data: Record data to validate
+
+    Raises:
+        ForeignKeyValidationError: If any FK references don't exist
+    """
+    errors = []
+
+    for fk in table.foreign_keys:
+        column = fk['column']
+        if column not in data or data[column] is None:
+            continue
+
+        ref_table, ref_col = fk['references'].split('.')
+        fk_value = data[column]
+
+        try:
+            parent_table = db._get_table(ref_table)
+            await parent_table[fk_value]
+        except Exception:
+            errors.append({
+                "field": column,
+                "value": fk_value,
+                "message": f"Referenced {ref_table} with {ref_col}={fk_value} does not exist"
+            })
+
+    if errors:
+        raise ForeignKeyValidationError(errors)
+
+
+class ValidatedTable:
+    """Wrapper that adds validation to Table write operations.
+
+    All read operations pass through unchanged. Write operations
+    (insert, update, upsert) validate before delegating to the
+    underlying table.
+
+    Example:
+        vusers = ValidatedTable(users, validators=USER_VALIDATORS)
+        await vusers.insert(data)  # Validates → inserts → returns dataclass
+
+        # Original table unchanged
+        await users.insert(data)  # No validation
+    """
+
+    def __init__(self, table, validators: dict = None, validate_fks: bool = True):
+        self._table = table
+        self._validators = validators or {}
+        self._validate_fks = validate_fks
+
+    # === Write operations (with validation) ===
+
+    async def insert(self, data):
+        validated = await self._validate(data)
+        return await self._table.insert(validated)
+
+    async def update(self, data):
+        validated = await self._validate(data)
+        return await self._table.update(validated)
+
+    async def upsert(self, data):
+        validated = await self._validate(data)
+        return await self._table.upsert(validated)
+
+    async def delete(self, pk):
+        return await self._table.delete(pk)  # No validation needed
+
+    # === Read operations (passthrough) ===
+
+    async def __call__(self, limit=None, offset=None, with_pk=False):
+        return await self._table(limit=limit, offset=offset, with_pk=with_pk)
+
+    async def __getitem__(self, pk):
+        return await self._table[pk]
+
+    async def lookup(self, **kwargs):
+        return await self._table.lookup(**kwargs)
+
+    # === Properties (passthrough) ===
+
+    @property
+    def schema(self):
+        return self._table.schema
+
+    @property
+    def foreign_keys(self):
+        return self._table.foreign_keys
+
+    @property
+    def indexes(self):
+        return self._table.indexes
+
+    @property
+    def fk(self):
+        return self._table.fk
+
+    @property
+    def name(self):
+        return self._table.name
+
+    # === Methods that return Tables (re-wrap) ===
+
+    def xtra(self, **kwargs):
+        new_table = self._table.xtra(**kwargs)
+        return ValidatedTable(new_table, self._validators, self._validate_fks)
+
+    # === Dataclass support ===
+
+    def dataclass(self):
+        return self._table.dataclass()
+
+    # === Internal ===
+
+    async def _validate(self, data: dict) -> dict:
+        from deebase.dataclass_utils import record_to_dict
+        data_dict = record_to_dict(data)
+        validated = apply_validators(data_dict, self._validators)
+        if self._validate_fks:
+            await validate_foreign_keys(self._table._db, self._table, validated)
+        return validated
+```
+
+**Refactor `src/deebase/api/validators.py`:**
+
+```python
+# Backward compatibility re-exports
+from deebase.validation import apply_validators, validate_foreign_keys
+from deebase.exceptions import ForeignKeyValidationError
+
+# Keep API-specific validators here if any
+```
+
+**Move `ForeignKeyValidationError` to `src/deebase/exceptions.py`:**
+
+```python
+class ForeignKeyValidationError(DeeBaseError):
+    """Raised when FK references don't exist during validation."""
+
+    def __init__(self, errors: list[dict]):
+        self.errors = errors
+        msg = "; ".join(e["message"] for e in errors)
+        super().__init__(msg)
+
+    def to_dict(self) -> dict:
+        return {"type": "foreign_key_validation_error", "errors": self.errors}
+```
+
+#### Part 2: Project Validators Directory
+
+**Created by `deebase init`:**
+
+```
+project/
+├── .deebase/
+│   ├── config.toml
+│   └── state.json
+├── validators/              # NEW: Shared validators
+│   ├── __init__.py          # Registry of all validators
+│   └── example.py           # Template to copy
+├── api/
+├── models/
+└── data/
+```
+
+**validators/__init__.py:**
+
+```python
+"""Validator registry for all tables.
+
+Used by both CLI (deebase data) and API routes.
+
+To add validators for a table:
+1. Create a file: validators/your_table.py
+2. Define validator functions and VALIDATORS dict
+3. Import and register here
+
+Example:
+    from . import users
+
+    VALIDATORS = {
+        "users": users.VALIDATORS,
+    }
+"""
+
+# Table name → validators dict
+VALIDATORS: dict[str, dict] = {}
+
+
+def get_validators(table_name: str) -> dict:
+    """Get validators for a table."""
+    return VALIDATORS.get(table_name, {})
+```
+
+**validators/example.py (template):**
+
+```python
+"""Example validators - copy this file for your tables.
+
+Validators are plain functions that:
+- Receive a field value
+- Return the (possibly transformed) value
+- Raise ValueError with message on invalid input
+
+These validators are used by BOTH:
+- CLI: deebase data insert/update
+- API: create_crud_router(validators=...)
+- Admin: Web forms
+"""
+import re
+
+
+def validate_email(value: str) -> str:
+    """Validate and normalize email format."""
+    if not re.match(r"^[^@]+@[^@]+\.[^@]+$", value):
+        raise ValueError("Invalid email format")
+    return value.lower()  # Normalize
+
+
+def validate_non_empty(value: str) -> str:
+    """Ensure string is not empty or whitespace."""
+    if not value or not value.strip():
+        raise ValueError("Cannot be empty")
+    return value.strip()
+
+
+# Register validators for this table
+VALIDATORS = {
+    # "email": validate_email,
+    # "name": validate_non_empty,
+}
+```
+
+#### Part 3: CLI Data Commands
+
+**New file: `src/deebase/cli/data_cmd.py`**
+
+```bash
+# Insert record
+$ deebase data insert users --name "Alice" --email "alice@example.com"
+Created user with id: 1
+
+# Insert with FK (validates existence)
+$ deebase data insert posts --title "Hello" --author_id 1
+Created post with id: 1
+
+# Insert with invalid FK
+$ deebase data insert posts --title "Bad" --author_id 999
+Error: Foreign key violation: author_id=999 references user.id which does not exist
+
+# List records
+$ deebase data list users
+┌────┬───────┬───────────────────┬────────┐
+│ id │ name  │ email             │ status │
+├────┼───────┼───────────────────┼────────┤
+│  1 │ Alice │ alice@example.com │ active │
+│  2 │ Bob   │ bob@example.com   │ active │
+└────┴───────┴───────────────────┴────────┘
+
+$ deebase data list users --limit 10 --format json
+$ deebase data list users --format csv
+
+# Get single record
+$ deebase data get users 1
+{
+  "id": 1,
+  "name": "Alice",
+  "email": "alice@example.com"
+}
+
+# Update record
+$ deebase data update users 1 --status inactive
+Updated user 1
+
+# Delete record
+$ deebase data delete users 1
+Delete user 1? [y/N]: y
+Deleted user 1
+
+$ deebase data delete users 1 -y  # Skip confirmation
+
+# Batch insert from JSON file
+$ deebase data insert users --from-file users.json
+Inserted 10 records into users
+
+# Interactive mode for FK fields
+$ deebase data insert posts --title "Hello" --interactive
+Select author_id:
+  1. Alice (id: 1)
+  2. Bob (id: 2)
+  3. Charlie (id: 3)
+> 1
+Created post with id: 1
+```
+
+**Implementation:**
+
+```python
+@click.group()
+def data():
+    """Data management commands."""
+    pass
+
+
+@data.command('insert')
+@click.argument('table')
+@click.option('--from-file', type=click.Path(exists=True), help='JSON file with records')
+@click.option('--interactive', '-i', is_flag=True, help='Interactive mode for FK fields')
+@click.option('--field', '-f', multiple=True, help='Field values as field=value')
+@click.pass_context
+def data_insert(ctx, table, from_file, interactive, field):
+    """Insert records into a table."""
+    run_async(_data_insert(table, from_file, interactive, field))
+
+
+@data.command('list')
+@click.argument('table')
+@click.option('--limit', '-l', type=int, default=100, help='Max records to show')
+@click.option('--offset', '-o', type=int, default=0, help='Skip N records')
+@click.option('--format', '-f', type=click.Choice(['table', 'json', 'csv']), default='table')
+def data_list(table, limit, offset, format):
+    """List records from a table."""
+    run_async(_data_list(table, limit, offset, format))
+
+
+@data.command('get')
+@click.argument('table')
+@click.argument('pk')
+@click.option('--format', '-f', type=click.Choice(['json', 'table']), default='json')
+def data_get(table, pk, format):
+    """Get a single record by primary key."""
+    run_async(_data_get(table, pk, format))
+
+
+@data.command('update')
+@click.argument('table')
+@click.argument('pk')
+@click.option('--field', '-f', multiple=True, help='Field values as field=value')
+def data_update(table, pk, field):
+    """Update a record."""
+    run_async(_data_update(table, pk, field))
+
+
+@data.command('delete')
+@click.argument('table')
+@click.argument('pk')
+@click.option('--yes', '-y', is_flag=True, help='Skip confirmation')
+def data_delete(table, pk, yes):
+    """Delete a record."""
+    run_async(_data_delete(table, pk, yes))
+```
+
+**Internal implementation:**
+
+```python
+async def _data_insert(table_name: str, from_file: str, interactive: bool, fields: tuple):
+    ensure_initialized()
+    config = load_config()
+    load_env()
+
+    db = Database(config.get_database_url())
+
+    try:
+        # Check table exists
+        await db.reflect_table(table_name)
+        table = db.t[table_name]
+    except Exception:
+        click.echo(f"Error: Table '{table_name}' not found", err=True)
+        return
+
+    # Load validators from project
+    validators = load_project_validators(table_name)
+
+    if from_file:
+        # Batch insert from JSON file
+        import json
+        with open(from_file) as f:
+            records = json.load(f)
+
+        count = 0
+        for record in records:
+            validated = apply_validators(record, validators)
+            await validate_foreign_keys(db, table, validated)
+            await table.insert(validated)
+            count += 1
+
+        click.echo(f"Inserted {count} records into {table_name}")
+    else:
+        # Single record from --field options
+        data = parse_field_values(fields)
+
+        if interactive:
+            data = await interactive_fk_selection(db, table, data)
+
+        # Validate
+        validated = apply_validators(data, validators)
+        await validate_foreign_keys(db, table, validated)
+
+        # Insert
+        record = await table.insert(validated)
+        pk_col = list(table.sa_table.primary_key.columns)[0].name
+        click.echo(f"Created {table_name} with {pk_col}: {record[pk_col]}")
+
+    await db.close()
+
+
+def load_project_validators(table_name: str) -> dict:
+    """Load validators from project's validators/ directory."""
+    validators_dir = Path.cwd() / "validators"
+    if not validators_dir.exists():
+        return {}
+
+    try:
+        # Try to import validators module
+        sys.path.insert(0, str(Path.cwd()))
+        from validators import get_validators
+        return get_validators(table_name)
+    except ImportError:
+        return {}
+    finally:
+        if str(Path.cwd()) in sys.path:
+            sys.path.remove(str(Path.cwd()))
+```
+
+#### Part 4: Admin Web Interface
+
+**Enabled with `--admin` flag:**
+
+```bash
+$ deebase api serve --admin
+INFO:     Admin interface enabled at /admin/
+INFO:     Uvicorn running on http://127.0.0.1:8000
+INFO:     API docs at http://127.0.0.1:8000/docs
+```
+
+**Routes:**
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/admin/` | GET | Dashboard: list of all tables |
+| `/admin/{table}/` | GET | List view with pagination |
+| `/admin/{table}/new` | GET | Create form |
+| `/admin/{table}/new` | POST | Submit create |
+| `/admin/{table}/{pk}` | GET | Detail/edit form |
+| `/admin/{table}/{pk}` | POST | Submit update |
+| `/admin/{table}/{pk}/delete` | GET | Delete confirmation |
+| `/admin/{table}/{pk}/delete` | POST | Confirm delete |
+
+**New package: `src/deebase/admin/`**
+
+```
+src/deebase/admin/
+├── __init__.py           # create_admin_router()
+├── router.py             # Admin FastAPI routes
+├── templates/
+│   ├── base.html         # Base layout
+│   ├── dashboard.html    # Table list
+│   ├── list.html         # Record list with pagination
+│   ├── detail.html       # View/edit form
+│   ├── create.html       # Create form
+│   └── delete.html       # Delete confirmation
+└── static/
+    └── admin.css         # Minimal styling (Pico CSS or custom)
+```
+
+**Admin Router Implementation:**
+
+```python
+from fastapi import APIRouter, Request, Form, Depends
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse
+from pathlib import Path
+
+def create_admin_router(db: "Database") -> APIRouter:
+    """Create admin interface router.
+
+    Args:
+        db: Database instance with reflected tables
+
+    Returns:
+        FastAPI router mounted at /admin/
+    """
+    router = APIRouter(prefix="/admin", tags=["Admin"])
+    templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+    @router.get("/")
+    async def admin_dashboard(request: Request):
+        """Show list of all tables."""
+        tables = list(db._tables.keys())
+        return templates.TemplateResponse("dashboard.html", {
+            "request": request,
+            "tables": tables,
+        })
+
+    @router.get("/{table_name}/")
+    async def admin_list(request: Request, table_name: str, page: int = 1, per_page: int = 25):
+        """List records in a table with pagination."""
+        table = db._get_table(table_name)
+        offset = (page - 1) * per_page
+        records = await table(limit=per_page, offset=offset)
+
+        # Get column names for header
+        columns = [c.name for c in table.sa_table.columns]
+        pk_col = list(table.sa_table.primary_key.columns)[0].name
+
+        return templates.TemplateResponse("list.html", {
+            "request": request,
+            "table_name": table_name,
+            "columns": columns,
+            "pk_col": pk_col,
+            "records": records,
+            "page": page,
+            "per_page": per_page,
+        })
+
+    @router.get("/{table_name}/new")
+    async def admin_create_form(request: Request, table_name: str):
+        """Show create form."""
+        table = db._get_table(table_name)
+        columns = [c for c in table.sa_table.columns if c.name not in table.sa_table.primary_key.columns.keys()]
+
+        # Get FK options for dropdown fields
+        fk_options = await _get_fk_options(db, table)
+
+        return templates.TemplateResponse("create.html", {
+            "request": request,
+            "table_name": table_name,
+            "columns": columns,
+            "fk_options": fk_options,
+        })
+
+    @router.post("/{table_name}/new")
+    async def admin_create_submit(request: Request, table_name: str):
+        """Handle create form submission."""
+        table = db._get_table(table_name)
+        form_data = await request.form()
+        data = dict(form_data)
+
+        # Load and apply validators
+        validators = load_project_validators(table_name)
+        validated = apply_validators(data, validators)
+        await validate_foreign_keys(db, table, validated)
+
+        record = await table.insert(validated)
+        pk_col = list(table.sa_table.primary_key.columns)[0].name
+
+        return RedirectResponse(
+            url=f"/admin/{table_name}/{record[pk_col]}",
+            status_code=303
+        )
+
+    # ... similar for detail, update, delete
+
+    return router
+
+
+async def _get_fk_options(db, table) -> dict:
+    """Get options for FK dropdown fields."""
+    fk_options = {}
+
+    for fk in table.foreign_keys:
+        column = fk['column']
+        ref_table_name, ref_col = fk['references'].split('.')
+
+        try:
+            ref_table = db._get_table(ref_table_name)
+            records = await ref_table(limit=100)
+
+            # Try to find a display field (name, title, etc.)
+            display_field = None
+            for col in ['name', 'title', 'label', 'email', 'username']:
+                if col in records[0] if records else []:
+                    display_field = col
+                    break
+
+            fk_options[column] = [
+                {
+                    "value": r[ref_col],
+                    "label": f"{r.get(display_field, '')} (id: {r[ref_col]})" if display_field else str(r[ref_col])
+                }
+                for r in records
+            ]
+        except Exception:
+            fk_options[column] = []
+
+    return fk_options
+```
+
+**Integration with `api serve`:**
+
+```python
+# In api_cmd.py
+
+@api.command('serve')
+@click.option('--host', default='127.0.0.1', help='Host to bind to')
+@click.option('--port', default=8000, type=int, help='Port to bind to')
+@click.option('--reload', is_flag=True, help='Enable auto-reload')
+@click.option('--admin', is_flag=True, help='Enable admin interface at /admin/')
+def api_serve(host: str, port: int, reload: bool, admin: bool):
+    """Start the FastAPI development server."""
+    ensure_initialized()
+    load_env()
+
+    if admin:
+        click.echo("Admin interface enabled at /admin/")
+        # Set environment variable for app.py to detect
+        os.environ['DEEBASE_ADMIN_ENABLED'] = '1'
+
+    # Start uvicorn
+    cmd = [
+        sys.executable, "-m", "uvicorn",
+        "api.app:app",
+        "--host", host,
+        "--port", str(port),
+    ]
+    if reload:
+        cmd.append("--reload")
+
+    subprocess.run(cmd)
+```
+
+**Template Example (list.html):**
+
+```html
+{% extends "base.html" %}
+
+{% block content %}
+<div class="admin-container">
+    <header>
+        <h1>{{ table_name }}</h1>
+        <a href="/admin/{{ table_name }}/new" class="button">+ Add {{ table_name }}</a>
+    </header>
+
+    <table>
+        <thead>
+            <tr>
+                {% for col in columns %}
+                <th>{{ col }}</th>
+                {% endfor %}
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for record in records %}
+            <tr>
+                {% for col in columns %}
+                <td>{{ record[col] }}</td>
+                {% endfor %}
+                <td>
+                    <a href="/admin/{{ table_name }}/{{ record[pk_col] }}">Edit</a>
+                    <a href="/admin/{{ table_name }}/{{ record[pk_col] }}/delete" class="danger">Delete</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <nav class="pagination">
+        {% if page > 1 %}
+        <a href="?page={{ page - 1 }}">← Previous</a>
+        {% endif %}
+        <span>Page {{ page }}</span>
+        {% if records|length == per_page %}
+        <a href="?page={{ page + 1 }}">Next →</a>
+        {% endif %}
+    </nav>
+</div>
+{% endblock %}
+```
+
+#### Part 5: Update `deebase init`
+
+**Modified `init_cmd.py`:**
+
+```python
+@click.command('init')
+@click.option('--package', help='Existing Python package to integrate with')
+@click.option('--new-package', help='Create new Python package')
+@click.option('--postgres', is_flag=True, help='Use PostgreSQL instead of SQLite')
+def init(package: str, new_package: str, postgres: bool):
+    """Initialize a new DeeBase project."""
+    # ... existing code ...
+
+    # Create validators directory (NEW)
+    validators_dir = Path("validators")
+    validators_dir.mkdir(exist_ok=True)
+
+    # Create __init__.py
+    (validators_dir / "__init__.py").write_text('''"""Validator registry for all tables.
+
+Used by both CLI (deebase data) and API routes.
+See validators/example.py for how to create validators.
+"""
+
+# Table name → validators dict
+VALIDATORS: dict[str, dict] = {}
+
+
+def get_validators(table_name: str) -> dict:
+    """Get validators for a table."""
+    return VALIDATORS.get(table_name, {})
+''')
+
+    # Create example.py template
+    (validators_dir / "example.py").write_text('''"""Example validators - copy this file for your tables.
+
+Validators are plain functions that:
+- Receive a field value
+- Return the (possibly transformed) value
+- Raise ValueError with message on invalid input
+
+These validators are used by BOTH:
+- CLI: deebase data insert/update
+- API: create_crud_router(validators=...)
+- Admin: Web forms
+"""
+import re
+
+
+def validate_email(value: str) -> str:
+    """Validate and normalize email format."""
+    if not re.match(r"^[^@]+@[^@]+\\.[^@]+$", value):
+        raise ValueError("Invalid email format")
+    return value.lower()
+
+
+def validate_non_empty(value: str) -> str:
+    """Ensure string is not empty or whitespace."""
+    if not value or not value.strip():
+        raise ValueError("Cannot be empty")
+    return value.strip()
+
+
+# Register validators for this table
+VALIDATORS = {
+    # "email": validate_email,
+    # "name": validate_non_empty,
+}
+''')
+
+    click.echo("Created validators/ directory with example validators")
+    # ... rest of init ...
+```
+
+#### Tests (~50 new tests)
+
+**Validation Layer (12 tests):**
+- `apply_validators()` transforms values
+- `apply_validators()` raises ValidationError on failure
+- `apply_validators()` skips None values
+- `validate_foreign_keys()` passes for valid FKs
+- `validate_foreign_keys()` fails for invalid FKs
+- `validate_foreign_keys()` skips null FKs
+- `ValidatedTable.insert()` validates before insert
+- `ValidatedTable.update()` validates before update
+- `ValidatedTable` preserves dataclass behavior
+- `ValidatedTable.xtra()` re-wraps with validators
+- Backward compatibility with api/validators.py imports
+
+**CLI Data Commands (18 tests):**
+- `deebase data list` shows records in table format
+- `deebase data list --format json` outputs JSON
+- `deebase data list --format csv` outputs CSV
+- `deebase data list --limit N` limits results
+- `deebase data get` returns single record
+- `deebase data get` returns 404 for missing
+- `deebase data insert` creates record
+- `deebase data insert` validates fields
+- `deebase data insert` validates FK references
+- `deebase data insert --from-file` batch imports
+- `deebase data update` modifies record
+- `deebase data update` validates fields
+- `deebase data delete` removes record
+- `deebase data delete -y` skips confirmation
+- Table existence check before operations
+- Loads validators from project directory
+
+**Admin Interface (20 tests):**
+- Dashboard lists all tables
+- List view shows records
+- List view pagination works
+- Create form shows columns
+- Create form shows FK dropdowns
+- Create submit validates
+- Create submit validates FKs
+- Create redirects to detail
+- Detail view shows record
+- Update form pre-fills values
+- Update submit validates
+- Delete confirmation page
+- Delete removes record
+- `--admin` flag enables routes
+- Admin disabled without flag
+- Templates render correctly
+- FK dropdown populated from parent table
+- Error messages shown on validation failure
+
+#### Deliverables
+
+**Code:**
+- `src/deebase/validation.py` (~150 lines) - Shared validation layer
+- `src/deebase/cli/data_cmd.py` (~300 lines) - CLI data commands
+- `src/deebase/admin/` package (~400 lines) - Admin interface
+- Updated `src/deebase/cli/init_cmd.py` - Create validators/
+- Updated `src/deebase/cli/api_cmd.py` - `--admin` flag
+- Updated `src/deebase/exceptions.py` - Move ForeignKeyValidationError
+- Updated `src/deebase/api/validators.py` - Re-export from validation.py
+
+**Templates:**
+- `admin/templates/base.html`
+- `admin/templates/dashboard.html`
+- `admin/templates/list.html`
+- `admin/templates/create.html`
+- `admin/templates/detail.html`
+- `admin/templates/delete.html`
+- `admin/static/admin.css`
+
+**Examples:**
+- `examples/phase16_data_admin.py` - CLI data commands and admin usage
+
+**Tests:**
+- `tests/test_validation.py` - Validation layer tests
+- `tests/test_cli_data.py` - CLI data command tests
+- `tests/test_admin.py` - Admin interface tests (TestClient)
+
+**Documentation:**
+- `docs/api_reference.md` - Add validation module, ValidatedTable
+- `docs/cli_reference.md` - Add `data` commands, `--admin` flag
+- `docs/fastapi_guide.md` - Admin interface section
+- `docs/implemented.md` - Phase 16 section
+- `docs/best-practices.md` - Validation patterns section
+- `README.md` - Update for Phase 16
+
+#### What We're NOT Implementing
+
+- **Authentication for admin** - User's responsibility (middleware)
+- **Role-based permissions** - Too complex, use custom logic
+- **Inline editing in list view** - Keep it simple
+- **File uploads** - Not part of core CRUD
+- **Custom admin actions** - Subclass CRUDRouter if needed
+- **Audit logging** - Use hooks in CRUDRouter
+- **Search/filter in admin** - Use views for complex queries
+
+#### Dependencies (Updated)
+
+```toml
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.100.0",
+    "pydantic>=2.0",
+    "fastcore>=1.5.0",
+    "uvicorn>=0.20.0",
+    "jinja2>=3.0",      # Already included, for admin templates
+]
+```
+
+No new dependencies required - Jinja2 is already in the `[api]` extra.
+
+---
+
 ## Testing Strategy
 
 Each phase includes tests:
