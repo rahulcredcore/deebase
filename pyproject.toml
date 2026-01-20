@@ -1,12 +1,12 @@
 [project]
 name = "deebase"
-version = "0.5.3"
+version = "0.6.0"
 description = "Async SQLAlchemy-based implementation of the fastlite API"
 readme = "README.md"
 authors = [
     { name = "Rahul Dave(Credcore)", email = "rahul@credcore.com" }
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = [
     "aiosqlite>=0.22.0",
     "asyncpg>=0.31.0",
