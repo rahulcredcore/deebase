@@ -1,5 +1,7 @@
 """Table class for database table operations."""
 
+from __future__ import annotations
+
 from typing import Any, Optional, TYPE_CHECKING
 from contextlib import asynccontextmanager
 import sqlalchemy as sa
