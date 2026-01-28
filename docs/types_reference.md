@@ -190,6 +190,56 @@ await table.drop_index("idx_custom")
 - Indexes improve read performance but slow down writes
 - Unique indexes enforce uniqueness constraints (raise `IntegrityError` on duplicates)
 
+### FTSIndex (Full-Text Search)
+
+Use `FTSIndex` to create BM25 full-text search indexes on text columns:
+
+```python
+from deebase import FTSIndex
+
+class Article:
+    id: int
+    title: str
+    content: Text
+
+articles = await db.create(
+    Article,
+    pk='id',
+    indexes=[
+        FTSIndex("title", "content", language="english"),
+    ]
+)
+
+# Search using BM25 ranking
+results = await articles.search("getting started", limit=10)
+```
+
+**Constructor:**
+- `FTSIndex(*columns: str, name: str = None, language: str = "english")`
+
+**Database mapping:**
+- **SQLite**: FTS5 virtual table with porter unicode61 tokenizer + auto-sync triggers
+- **PostgreSQL**: pg_textsearch BM25 index with `USING bm25()` syntax
+
+**Important notes:**
+- FTSIndex is NOT a column type -- it is used in the `indexes` parameter of `db.create()` or via `table.create_fts_index()`
+- FTSIndex is architecturally different from `Index` (FTS uses virtual tables/specialized indexes, not B-tree)
+- Scores are negative floats across both backends (more negative = more relevant)
+- Supports language-specific stemming and stop word removal
+
+**Managing FTS indexes after table creation:**
+```python
+# Add FTS index
+await table.create_fts_index(["title", "content"], language="english")
+
+# List FTS indexes
+for idx in table.fts_indexes:
+    print(f"{idx['name']}: {idx['columns']} (language={idx['language']})")
+
+# Drop FTS index
+await table.drop_fts_index("article_fts")
+```
+
 ### Default Values
 
 Use Python class defaults for SQL `DEFAULT` values:

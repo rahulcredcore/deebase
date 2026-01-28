@@ -28,6 +28,7 @@ class FieldDefinition:
         fk_table: Foreign key target table
         fk_column: Foreign key target column (defaults to 'id')
         doc: Field documentation (for inline comments in generated code)
+        fts: Whether this field should be included in a full-text search index
     """
     name: str
     type_name: str
@@ -37,6 +38,7 @@ class FieldDefinition:
     fk_table: Optional[str] = None
     fk_column: Optional[str] = None
     doc: Optional[str] = None
+    fts: bool = False
 
     @property
     def is_foreign_key(self) -> bool:
@@ -174,6 +176,7 @@ def parse_field(field_spec: str) -> FieldDefinition:
     # Parse modifiers
     unique = False
     nullable = False
+    fts = False
     default = None
     fk_table = None
     fk_column = 'id'  # Default FK column
@@ -183,6 +186,8 @@ def parse_field(field_spec: str) -> FieldDefinition:
 
         if modifier == 'unique':
             unique = True
+        elif modifier == 'fts':
+            fts = True
         elif modifier == 'nullable':
             nullable = True
         elif modifier.startswith('default='):
@@ -202,7 +207,7 @@ def parse_field(field_spec: str) -> FieldDefinition:
             else:
                 raise ValueError(
                     f"Unknown modifier '{modifier}' in '{field_spec}'. "
-                    f"Valid modifiers: unique, nullable, default=value, fk=table[.column]"
+                    f"Valid modifiers: unique, nullable, fts, default=value, fk=table[.column]"
                 )
 
     return FieldDefinition(
@@ -214,6 +219,7 @@ def parse_field(field_spec: str) -> FieldDefinition:
         fk_table=fk_table,
         fk_column=fk_column,
         doc=doc,
+        fts=fts,
     )
 
 

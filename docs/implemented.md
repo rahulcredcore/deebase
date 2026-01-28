@@ -4182,9 +4182,102 @@ The codebase is designed to be database-agnostic through SQLAlchemy's dialect sy
 
 ---
 
+## Phase 18: Full-Text Search (BM25) ✅ COMPLETE
+
+### FTS Index Creation
+
+```python
+from deebase import Database, FTSIndex, Text
+
+db = Database("sqlite+aiosqlite:///:memory:")
+
+class Article:
+    id: int
+    title: str
+    content: Text
+    author_id: int
+
+# Create table with FTS index
+articles = await db.create(Article, pk='id', indexes=[
+    FTSIndex("title", "content", language="english"),
+])
+
+# Or add FTS index after table creation
+await articles.create_fts_index(["title", "content"])
+```
+
+### BM25 Search
+
+```python
+# Insert sample data
+await articles.insert({"title": "Getting Started with Python", "content": "A beginner guide...", "author_id": 1})
+await articles.insert({"title": "Advanced Async Patterns", "content": "Deep dive into async...", "author_id": 1})
+await articles.insert({"title": "Database Design", "content": "How to design schemas...", "author_id": 2})
+
+# Basic search
+results = await articles.search("getting started", limit=10)
+# Returns matching records ranked by BM25 relevance
+
+# Search specific columns
+results = await articles.search("python", columns=["title"])
+
+# Get BM25 scores (negative float, more negative = more relevant)
+scored = await articles.search("async patterns", score=True)
+for record, score in scored:
+    print(f"{record['title']}: {score}")
+# "Advanced Async Patterns: -2.5"
+
+# Search respects xtra() filters
+my_articles = articles.xtra(author_id=1)
+results = await my_articles.search("python")
+# Only searches within author_id=1 articles
+
+# Search respects dataclass settings
+ArticleDC = articles.dataclass()
+results = await articles.search("database")
+# Returns ArticleDC instances
+```
+
+### FTS Introspection and Management
+
+```python
+# List FTS indexes
+for idx in articles.fts_indexes:
+    print(f"{idx['name']}: {idx['columns']} (language={idx['language']})")
+# article_fts: ['title', 'content'] (language=english)
+
+# Drop FTS index
+await articles.drop_fts_index("article_fts")
+```
+
+### CLI Commands
+
+```bash
+# Create FTS index
+deebase index fts-create articles title,content --language english
+
+# List FTS indexes
+deebase index fts-list articles
+
+# Drop FTS index
+deebase index fts-drop articles --name article_fts --yes
+
+# Use :fts modifier when creating tables
+deebase table create articles id:int title:str:fts content:Text:fts author_id:int --pk id
+```
+
+### Backend Details
+
+- **SQLite**: Uses FTS5 virtual tables with porter unicode61 tokenizer. Auto-creates INSERT/UPDATE/DELETE sync triggers to keep the FTS table in sync with the source table.
+- **PostgreSQL**: Uses pg_textsearch extension with `USING bm25()` index syntax and `<@>` search operator. Indexes auto-sync with table data.
+
+**Test count:** 595 total (56 new FTS tests)
+
+---
+
 ## Summary
 
-**All 16 Phases Complete + Phase 17 Ongoing! 🎉**
+**All 18 Phases Complete!
 
 DeeBase is production-ready with:
 - ✅ **Async/await support** - Modern Python async for FastAPI and other frameworks
@@ -4207,9 +4300,10 @@ DeeBase is production-ready with:
 - ✅ **Admin interface** - Django-like admin UI at `/admin/`
 - ✅ **CLI data commands** - CRUD from the terminal with `deebase data`
 - ✅ **Admin enhancements** - Read-only detail views, type-based renderers, custom displays (Phase 17)
+- ✅ **Full-text search** - BM25 search via `FTSIndex` and `table.search()` with SQLite FTS5 and PostgreSQL pg_textsearch (Phase 18)
 - ✅ **Comprehensive error handling** - 6 specific exception types with rich context
 - ✅ **Code generation** - Export database schemas as Python dataclasses
 - ✅ **Complete documentation** - API reference, migration guide, CLI reference, examples
-- ✅ **539 passing tests** - Comprehensive test coverage
+- ✅ **595 passing tests** - Comprehensive test coverage
 
 **Ready for production use!**

@@ -3643,6 +3643,90 @@ def _load_custom_display(table_name: str, field_name: str):
 6. `README.md` - Update admin description
 7. `CLAUDE.md` - Mark Phase 17 complete
 
+### Phase 18: Full-Text Search (BM25) ✅ COMPLETE
+
+**Goal:** Add BM25 full-text search support for string/Text columns using SQLite FTS5 (built-in) and PostgreSQL pg_textsearch extension.
+
+**Branch:** `index_fts`
+
+**Design:** New `FTSIndex` class (standalone, not subclass of `Index`) + `table.search()` method. Dialect-specific backends handle the fundamental architectural differences:
+- **SQLite FTS5:** Virtual table + auto-created sync triggers
+- **PostgreSQL pg_textsearch:** `CREATE INDEX ... USING bm25()` (real index, auto-synced)
+
+**API:**
+
+```python
+from deebase import FTSIndex
+
+# Create with FTS indexes
+articles = await db.create(Article, pk='id', indexes=[
+    FTSIndex("title", "content", language="english"),  # multi-column
+    FTSIndex("title", name="title_fts"),               # single-column
+])
+
+# Post-creation
+await articles.create_fts_index(["title", "content"], language="english")
+
+# Search all indexed columns
+results = await articles.search("getting started", limit=10)
+
+# Search specific column
+results = await articles.search("getting started", columns=["title"])
+
+# Get BM25 scores (negative float, more negative = more relevant)
+results = await articles.search("getting started", score=True)
+# Returns: [(row, -2.5), (row, -1.3), ...]
+
+# Introspection & cleanup
+articles.fts_indexes  # [{'name': ..., 'columns': [...], 'language': ...}]
+await articles.drop_fts_index("title_fts")
+```
+
+**New files:**
+- `src/deebase/fts.py` — FTSIndex class, dialect-specific SQL generation
+- `tests/test_fts.py` — ~40-50 tests
+- `examples/phase18_fts.py` — standalone example
+
+**Modified files (source):**
+- `src/deebase/__init__.py` — export FTSIndex
+- `src/deebase/types.py` — re-export FTSIndex
+- `src/deebase/database.py` — handle FTSIndex in db.create() / _create_indexes()
+- `src/deebase/table.py` — add search(), create_fts_index(), drop_fts_index(), fts_indexes
+- `src/deebase/cli/index_cmd.py` — fts-create, fts-list, fts-drop subcommands
+- `src/deebase/cli/parser.py` — :fts modifier
+
+**Key design decisions:**
+1. FTSIndex is standalone (FTS is architecturally different from B-tree)
+2. SQLite sync triggers created automatically (users never manage them)
+3. PostgreSQL requires pg_textsearch extension (clear error if missing)
+4. Scores are negative floats across both backends (more negative = more relevant)
+5. `search()` respects `xtra()` filters and dataclass settings
+6. One FTSIndex can cover multiple columns (SQLite: single virtual table, PG: one index per column)
+7. Per-column search via `columns` param on `search()`
+
+**CLI:**
+```bash
+deebase index fts-create articles title,content --language english
+deebase index fts-list articles
+deebase index fts-drop articles --name title_fts --yes
+```
+
+**Documentation updates (all 12 doc files + README + CLAUDE.md):**
+1. `examples/phase18_fts.py` + `examples/complete_example.py` + `examples/README.md`
+2. `docs/api_reference.md` — FTSIndex, search(), create_fts_index(), drop_fts_index(), fts_indexes
+3. `docs/cli_reference.md` — fts-create/list/drop commands, :fts modifier
+4. `docs/implemented.md` — Phase 18 section
+5. `docs/best-practices.md` — FTS vs LIKE/ILIKE, language config
+6. `docs/types_reference.md` — FTSIndex type
+7. `docs/how-it-works.md` — FTS5 virtual tables, pg_textsearch internals, trigger sync
+8. `docs/fastapi_guide.md` — search endpoint example
+9. `docs/migrating_from_fastlite.md` — FTS as deebase-only feature
+10. `docs/implementation_plan.md` — mark Phase 18 complete
+11. `README.md` — feature list + usage
+12. `CLAUDE.md` — phase status + deliverables
+
+**Test targets:** ~40-50 new tests covering FTSIndex class, SQLite FTS creation/search/sync/drop/introspection, xtra()+search, error handling, integration, and PostgreSQL (skipped if not available).
+
 ---
 
 ## Testing Strategy

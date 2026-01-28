@@ -208,3 +208,188 @@ async def _drop_index(config, index_name: str):
         await db.q(f"DROP INDEX IF EXISTS {index_name}")
     finally:
         await db.close()
+
+
+# ---------------------------------------------------------------------------
+# FTS subcommands
+# ---------------------------------------------------------------------------
+
+@index.command('fts-create')
+@click.argument('table_name')
+@click.argument('columns')
+@click.option('--name', '-n', help='FTS index name (auto-generated if not provided)')
+@click.option('--language', '-l', default='english', help='Language for stemming (default: english)')
+def fts_create(table_name: str, columns: str, name: str, language: str):
+    """Create a full-text search (FTS) index on a table.
+
+    COLUMNS is a comma-separated list of text columns to index.
+
+    Examples:
+
+        deebase index fts-create articles title,content
+
+        deebase index fts-create articles title --name title_fts --language french
+    """
+    project_root = find_project_root()
+
+    if project_root is None:
+        click.echo("Error: No DeeBase project found. Run 'deebase init' first.")
+        sys.exit(1)
+
+    load_env(project_root)
+    config = load_config(project_root)
+
+    column_list = [c.strip() for c in columns.split(',')]
+
+    click.echo(f"Creating FTS index on {table_name}({', '.join(column_list)})...")
+
+    try:
+        run_async(_create_fts_index(config, table_name, column_list, name, language))
+        idx_name = name or f"{table_name}_fts"
+        click.echo(f"FTS index '{idx_name}' created successfully.")
+
+        state = load_state(project_root)
+        cols_str = "[" + ", ".join(f"'{c}'" for c in column_list) + "]"
+        name_str = f", name='{name}'" if name else ""
+        lang_str = f", language='{language}'" if language != "english" else ""
+        migration_code = f"await db.t.{table_name}.create_fts_index({cols_str}{name_str}{lang_str})"
+
+        try:
+            append_to_migration(migration_code, project_root, state)
+            click.echo(f"Recorded in migration: {state.current_migration}")
+        except ValueError as e:
+            click.echo(f"Warning: {e}")
+
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        sys.exit(1)
+
+
+async def _create_fts_index(config, table_name: str, columns: list[str], name: str, language: str):
+    """Create an FTS index in the database."""
+    from deebase import Database
+
+    url = config.get_database_url()
+    db = Database(url)
+
+    try:
+        table = await db.reflect_table(table_name)
+        await table.create_fts_index(columns, name=name, language=language)
+    finally:
+        await db.close()
+
+
+@index.command('fts-list')
+@click.argument('table_name')
+def fts_list(table_name: str):
+    """List FTS indexes on a table.
+
+    For SQLite, lists FTS5 virtual tables associated with the table.
+    """
+    project_root = find_project_root()
+
+    if project_root is None:
+        click.echo("Error: No DeeBase project found. Run 'deebase init' first.")
+        sys.exit(1)
+
+    load_env(project_root)
+    config = load_config(project_root)
+
+    try:
+        fts_tables = run_async(_list_fts_indexes(config, table_name))
+        if fts_tables:
+            click.echo(f"FTS indexes related to '{table_name}':")
+            for name in fts_tables:
+                click.echo(f"  {name}")
+        else:
+            click.echo(f"No FTS indexes found for '{table_name}'.")
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        sys.exit(1)
+
+
+async def _list_fts_indexes(config, table_name: str) -> list[str]:
+    """List FTS virtual tables related to a source table."""
+    from deebase import Database
+
+    url = config.get_database_url()
+    db = Database(url)
+
+    try:
+        # For SQLite, query sqlite_master for FTS5 virtual tables
+        # that reference this table via content=
+        rows = await db.q(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND sql LIKE '%fts5%' AND sql LIKE :pattern"
+        )
+        # Filter by naming convention or content= reference
+        pattern = f"%content='{table_name}'%"
+        rows = await db.q(
+            f"SELECT name FROM sqlite_master "
+            f"WHERE type='table' AND sql LIKE '%fts5%' AND sql LIKE '{pattern}'"
+        )
+        return [row['name'] for row in rows]
+    finally:
+        await db.close()
+
+
+@index.command('fts-drop')
+@click.argument('table_name')
+@click.option('--name', '-n', help='FTS index name (defaults to {table}_fts)')
+@click.option('--yes', '-y', is_flag=True, help='Skip confirmation')
+def fts_drop(table_name: str, name: str, yes: bool):
+    """Drop an FTS index from a table.
+
+    Examples:
+
+        deebase index fts-drop articles
+
+        deebase index fts-drop articles --name title_fts --yes
+    """
+    project_root = find_project_root()
+
+    if project_root is None:
+        click.echo("Error: No DeeBase project found. Run 'deebase init' first.")
+        sys.exit(1)
+
+    fts_name = name or f"{table_name}_fts"
+
+    if not yes:
+        if not click.confirm(f"Are you sure you want to drop FTS index '{fts_name}'?"):
+            click.echo("Aborted.")
+            return
+
+    load_env(project_root)
+    config = load_config(project_root)
+
+    try:
+        run_async(_drop_fts_index(config, table_name, name))
+        click.echo(f"FTS index '{fts_name}' dropped successfully.")
+
+        state = load_state(project_root)
+        name_str = f"'{name}'" if name else "None"
+        migration_code = f"await db.t.{table_name}.drop_fts_index({name_str})"
+
+        try:
+            append_to_migration(migration_code, project_root, state)
+            click.echo(f"Recorded in migration: {state.current_migration}")
+        except ValueError as e:
+            click.echo(f"Warning: {e}")
+
+    except Exception as e:
+        click.echo(f"Error: {e}")
+        sys.exit(1)
+
+
+async def _drop_fts_index(config, table_name: str, name: str):
+    """Drop an FTS index from the database."""
+    from deebase import Database
+
+    url = config.get_database_url()
+    db = Database(url)
+
+    try:
+        table = await db.reflect_table(table_name)
+        await table.drop_fts_index(name)
+    finally:
+        await db.close()

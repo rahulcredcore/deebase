@@ -592,6 +592,69 @@ def render_field_name(value: Any, record: dict) -> str:
 | DATETIME | Formatted timestamp |
 | NULL | Em dash (—) marker |
 
+## Search Endpoint
+
+DeeBase's full-text search integrates naturally with FastAPI. Add a search endpoint alongside your CRUD routes:
+
+```python
+from fastapi import FastAPI, Query
+from deebase import Database, FTSIndex, Text
+
+@dataclass
+class Article:
+    id: int
+    title: str
+    content: Text
+
+app = FastAPI()
+db = Database("sqlite+aiosqlite:///app.db")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await db.create(Article, pk="id", indexes=[
+        FTSIndex("title", "content", language="english"),
+    ], if_not_exists=True)
+    yield
+    await db.close()
+
+app = FastAPI(lifespan=lifespan)
+
+# CRUD router
+app.include_router(create_crud_router(
+    db=db, model_cls=Article,
+    prefix="/api/articles", tags=["Articles"],
+))
+
+# Search endpoint
+@app.get("/api/articles/search")
+async def search_articles(
+    q: str = Query(..., description="Search query"),
+    limit: int = Query(10, ge=1, le=100),
+):
+    """Full-text search across article titles and content."""
+    articles = db.t.article
+    results = await articles.search(q, limit=limit)
+    return results
+
+# Search with scores
+@app.get("/api/articles/search/scored")
+async def search_articles_scored(
+    q: str = Query(..., description="Search query"),
+    limit: int = Query(10, ge=1, le=100),
+):
+    """Full-text search with BM25 relevance scores."""
+    articles = db.t.article
+    scored = await articles.search(q, limit=limit, score=True)
+    return [{"article": record, "score": score} for record, score in scored]
+```
+
+**Notes:**
+- Register the search route **before** the CRUD router so `/search` is not treated as a `{pk}` parameter
+- `search()` respects `xtra()` filters, so you can scope searches per user or tenant
+- Scores are negative floats (more negative = more relevant)
+
+---
+
 ## CLI Commands
 
 DeeBase provides CLI commands for API scaffolding:
