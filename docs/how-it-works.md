@@ -4373,6 +4373,118 @@ The sync/async bridge pattern (same as Phase 13 CLI) uses `asyncio.run()` to exe
 
 ---
 
+## 19. Full-Text Search Architecture (Phase 18)
+
+DeeBase provides BM25 full-text search via the `FTSIndex` class and `table.search()` method. The architecture differs significantly between SQLite and PostgreSQL due to fundamental differences in how each database handles full-text search.
+
+### FTSIndex Class
+
+`FTSIndex` is a standalone class (not a subclass of `Index`) because FTS indexes are architecturally different from B-tree indexes:
+
+```python
+from deebase import FTSIndex
+
+# FTSIndex stores columns, name, and language
+fts = FTSIndex("title", "content", language="english")
+# fts.columns = ["title", "content"]
+# fts.name = None (auto-generated)
+# fts.language = "english"
+```
+
+### SQLite: FTS5 Virtual Tables
+
+SQLite uses FTS5 virtual tables for full-text search. When you create an FTS index, DeeBase:
+
+1. **Creates an FTS5 virtual table** mirroring the indexed columns:
+   ```sql
+   CREATE VIRTUAL TABLE article_fts USING fts5(
+       title, content,
+       content='article',
+       content_rowid='id',
+       tokenize='porter unicode61'
+   );
+   ```
+
+2. **Populates the FTS table** from existing data:
+   ```sql
+   INSERT INTO article_fts(rowid, title, content)
+   SELECT id, title, content FROM article;
+   ```
+
+3. **Creates sync triggers** to keep the FTS table in sync with the source table:
+   ```sql
+   -- INSERT trigger
+   CREATE TRIGGER article_fts_ai AFTER INSERT ON article BEGIN
+       INSERT INTO article_fts(rowid, title, content)
+       VALUES (new.id, new.title, new.content);
+   END;
+
+   -- DELETE trigger
+   CREATE TRIGGER article_fts_ad AFTER DELETE ON article BEGIN
+       INSERT INTO article_fts(article_fts, rowid, title, content)
+       VALUES ('delete', old.id, old.title, old.content);
+   END;
+
+   -- UPDATE trigger
+   CREATE TRIGGER article_fts_au AFTER UPDATE ON article BEGIN
+       INSERT INTO article_fts(article_fts, rowid, title, content)
+       VALUES ('delete', old.id, old.title, old.content);
+       INSERT INTO article_fts(rowid, title, content)
+       VALUES (new.id, new.title, new.content);
+   END;
+   ```
+
+4. **Search queries** join the FTS table back to the source table:
+   ```sql
+   SELECT article.*, bm25(article_fts) as score
+   FROM article_fts
+   JOIN article ON article.id = article_fts.rowid
+   WHERE article_fts MATCH 'getting started'
+   ORDER BY bm25(article_fts)
+   LIMIT 10;
+   ```
+
+The `porter unicode61` tokenizer provides stemming (e.g., "running" matches "run") and Unicode normalization.
+
+### PostgreSQL: pg_textsearch Extension
+
+PostgreSQL uses the pg_textsearch extension which provides native BM25 scoring:
+
+1. **Creates a BM25 index** directly on the table:
+   ```sql
+   CREATE INDEX article_fts ON article
+   USING bm25(title, content)
+   WITH (text_config='english');
+   ```
+
+2. **Search queries** use the `<@>` operator:
+   ```sql
+   SELECT *, title <@> 'getting started' as score
+   FROM article
+   WHERE title <@> 'getting started'
+   ORDER BY score
+   LIMIT 10;
+   ```
+
+PostgreSQL's approach is simpler because the index is a real database index that auto-syncs with the table data (no triggers needed).
+
+### Dialect Detection
+
+`table.search()` detects the database dialect and generates appropriate SQL:
+
+```python
+async def search(self, query, *, columns=None, limit=None, score=False):
+    dialect = self._engine.dialect.name
+    if dialect == "sqlite":
+        return await self._search_sqlite(query, columns, limit, score)
+    elif dialect == "postgresql":
+        return await self._search_postgres(query, columns, limit, score)
+```
+
+### Score Normalization
+
+Both backends return negative float scores where more negative = more relevant. This convention comes from SQLite's `bm25()` function and is maintained for PostgreSQL compatibility.
+
 ## Key Takeaways
 
 1. **SQLAlchemy Core, Not ORM**: We use Tables and Columns directly, not ORM models
@@ -4402,6 +4514,8 @@ The sync/async bridge pattern (same as Phase 13 CLI) uses `asyncio.run()` to exe
 25. **Wrapper Pattern for Validation**: `ValidatedTable` wraps `Table` to add validation without modifying core class
 26. **Shared Validators**: Same validators work in CLI, admin, API, and custom code via `validators/` directory
 27. **Admin Interface**: Django-like admin via Jinja2 templates at `/admin/` route
+28. **FTS5 Virtual Tables**: SQLite FTS uses virtual tables + auto-sync triggers for BM25 search
+29. **Dialect-Specific FTS**: SQLite uses FTS5, PostgreSQL uses pg_textsearch -- `search()` abstracts the difference
 
 ## Further Reading
 

@@ -21,6 +21,7 @@ from .validation import (
     ValidatedTable,
 )
 from .types import Text, ForeignKey, Index
+from .fts import FTSIndex
 from .dataclass_utils import dataclass_src, create_mod, create_mod_from_tables
 
 __version__ = "0.1.0"
@@ -42,6 +43,7 @@ __all__ = [
     "Text",
     "ForeignKey",
     "Index",
+    "FTSIndex",
     "dataclass_src",
     "create_mod",
     "create_mod_from_tables",

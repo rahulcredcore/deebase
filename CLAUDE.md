@@ -27,7 +27,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 ## Project Status
 
-✅ **All 16 Phases Complete** - Production-ready with full Data Management & Admin Interface
+✅ **All 18 Phases Complete** - Production-ready with full Data Management, Admin Interface & Full-Text Search
 🔄 **Phase 17 Ongoing** - Admin UI Enhancements (core features and docs complete, open for future enhancements)
 
 ✅ **Phase 1 Complete** - Core Infrastructure with enhancements
@@ -47,9 +47,29 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 15 Complete** - FastAPI Integration (CRUD routers, Pydantic models, FK validation)
 ✅ **Phase 16 Complete** - Data Management & Admin Interface (CLI data commands, Django-like admin UI)
 🔄 **Phase 17 Ongoing** - Admin UI Enhancements (read-only detail view, clickable rows, custom field renderers)
-🔲 **Phase 18 Planned** - Full-Text Search (BM25) — FTSIndex class, table.search(), SQLite FTS5 + PostgreSQL pg_textsearch
+✅ **Phase 18 Complete** - Full-Text Search (BM25) — FTSIndex class, table.search(), SQLite FTS5 + PostgreSQL pg_textsearch
+🔲 **Phase 19 Planned** - PostgreSQL Testing — Run full test suite against PostgreSQL, validate pg_textsearch FTS
 
-**Phase 18 Plan:** See `docs/implementation_plan.md` (Phase 18 section) for detailed implementation plan.
+**Phase 19 Plan:** Test all existing functionality against PostgreSQL (asyncpg). Requires a PostgreSQL instance
+with the [pg_textsearch](https://github.com/timescale/pg_textsearch) extension for FTS testing.
+
+**PostgreSQL + pg_textsearch Docker Setup:**
+There is no pre-built Docker image with pg_textsearch included. Use a custom Dockerfile:
+```dockerfile
+FROM postgres:17
+RUN apt-get update && apt-get install -y git build-essential postgresql-server-dev-17 \
+    && cd /tmp && git clone https://github.com/timescale/pg_textsearch \
+    && cd pg_textsearch && make && make install \
+    && rm -rf /tmp/pg_textsearch && apt-get purge -y git build-essential && apt-get autoremove -y
+```
+Then run:
+```bash
+docker build -t postgres-fts .
+docker run -d --name deebase-pg -e POSTGRES_PASSWORD=deebase -p 5432:5432 postgres-fts
+# Enable the extension in your database:
+docker exec -it deebase-pg psql -U postgres -c "CREATE EXTENSION pg_textsearch;"
+```
+Connection URL for DeeBase: `postgresql+asyncpg://postgres:deebase@localhost/postgres`
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
@@ -76,7 +96,8 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ FastAPI Integration (`create_crud_router()`, `CRUDRouter` with hooks, FK validation)
 - ✅ Complete documentation (API reference, migration guide, CLI reference, examples)
 - ✅ Admin UI enhancements (read-only detail view, type-based renderers, custom displays)
-- ✅ 539 passing tests (375 core + 44 API + 24 validation + 61 CLI + 31 admin + 4 misc)
+- ✅ Full-text search with BM25 (FTSIndex, table.search(), SQLite FTS5 + PostgreSQL pg_textsearch)
+- ✅ 595 passing tests (375 core + 44 API + 24 validation + 61 CLI + 31 admin + 56 FTS + 4 misc)
 
 **Phase 8 Deliverables:**
 - 6 new exception types: `DeeBaseError`, `NotFoundError`, `IntegrityError`, `ValidationError`, `SchemaError`, `ConnectionError`, `InvalidOperationError`
@@ -180,7 +201,7 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 - ✅ `examples/phase16_data_admin.py` example file
 - ✅ `examples/complete_example_with_validation.py` comprehensive validation example
 - ✅ Complete documentation updates (api_reference.md, cli_reference.md, implemented.md, fastapi_guide.md, how-it-works.md, best-practices.md, types_reference.md, README.md)
-- ✅ **508 total passing tests**
+- ✅ **508 total passing tests** (at time of Phase 16 completion)
 
 **Phase 17 Deliverables (In Progress):**
 - ✅ Read-only detail view at `/{table}/{pk}` (edit moved to `/{table}/{pk}/edit`)
@@ -205,15 +226,33 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 
 **Phase 17 Status:** Open, no new tasks planned. Core features complete.
 
+**Phase 18 Deliverables:**
+- ✅ `FTSIndex` class for FTS index definitions (`src/deebase/fts.py`)
+- ✅ `table.search(query, columns, limit, score)` — BM25 full-text search
+- ✅ `table.create_fts_index(columns, name, language)` — Create FTS index post-creation
+- ✅ `table.drop_fts_index(name)` — Drop FTS index
+- ✅ `table.fts_indexes` property — FTS index metadata
+- ✅ SQLite FTS5 backend: virtual tables + INSERT/UPDATE/DELETE sync triggers
+- ✅ PostgreSQL pg_textsearch backend: `USING bm25()` indexes + `<@>` operator (untested, for Phase 19)
+- ✅ FTS query escaping (tokens wrapped in double quotes for special character safety)
+- ✅ FTSIndex support in `db.create(indexes=[FTSIndex(...)])` parameter
+- ✅ CLI: `deebase index fts-create/fts-list/fts-drop` commands
+- ✅ CLI: `:fts` modifier in field parser
+- ✅ `examples/phase18_fts.py` example file
+- ✅ `examples/complete_example.py` updated with FTS section
+- ✅ 56 new FTS tests
+- ✅ All documentation updated (api_reference, cli_reference, implemented, best-practices, types_reference, how-it-works, fastapi_guide, migrating_from_fastlite, implementation_plan, README)
+- ✅ **595 total passing tests**
+
 See [docs/implementation_plan.md](docs/implementation_plan.md) for detailed implementation roadmap.
 See [docs/implemented.md](docs/implemented.md) for comprehensive usage examples of implemented features.
 
 ## Basic Usage
 
-### Working Now (Phases 1-17)
+### Working Now (Phases 1-18)
 
 ```python
-from deebase import Database, Text, Index, NotFoundError
+from deebase import Database, Text, Index, FTSIndex, NotFoundError
 from datetime import datetime
 
 # Create database connection
@@ -467,6 +506,41 @@ for idx in articles.indexes:
 # Drop an index
 await articles.drop_index("ix_article_created_at")
 
+# Full-Text Search (Phase 18)
+
+from deebase import FTSIndex
+
+class Article:
+    id: int
+    title: str
+    content: Text
+
+# Create table with FTS index
+articles = await db.create(Article, pk='id', indexes=[
+    FTSIndex("title", "content", language="english"),
+])
+
+# BM25 search
+results = await articles.search("getting started", limit=10)
+
+# Column-specific search
+results = await articles.search("python", columns=["title"])
+
+# Search with BM25 scores (negative = more relevant)
+scored = await articles.search("database design", score=True)
+for record, score in scored:
+    print(f"{score:.4f}  {record['title']}")
+
+# Create FTS index after table creation
+await articles.create_fts_index("title", name="title_fts")
+
+# Introspection
+print(articles.fts_indexes)
+# [{'name': 'article_fts', 'columns': ['title', 'content'], 'language': 'english'}, ...]
+
+# Drop FTS index
+await articles.drop_fts_index("title_fts")
+
 # CLI (Phase 13)
 # The CLI provides terminal commands for database management:
 
@@ -490,6 +564,11 @@ $ deebase view create active_users --sql "SELECT * FROM users WHERE status = 'ac
 
 # Create index
 $ deebase index create users email --unique
+
+# Full-text search indexes
+$ deebase index fts-create articles title,content --language english
+$ deebase index fts-list articles
+$ deebase index fts-drop articles --yes
 
 # Execute SQL
 $ deebase sql "SELECT COUNT(*) FROM users"
@@ -524,6 +603,7 @@ src/deebase/
 ├── types.py              # Python → SQLAlchemy type mapping
 ├── dataclass_utils.py    # Dataclass generation and handling
 ├── exceptions.py         # Custom exceptions (NotFoundError, ForeignKeyValidationError, etc.)
+├── fts.py                # Full-text search (FTSIndex, FTS5/pg_textsearch SQL generation)
 ├── validation.py         # Shared validation layer (Phase 16)
 ├── cli/                  # Command-line interface (Phase 13+14+16)
 │   ├── __init__.py       # Click group and main()
@@ -721,6 +801,9 @@ uv run examples/phase14_migrations.py
 
 # Phase 15: FastAPI Integration
 uv run examples/phase15_fastapi.py
+
+# Phase 18: Full-Text Search
+uv run examples/phase18_fts.py
 
 # Complete CLI example: Building a blog using actual CLI commands
 uv run examples/complete_cli_example.py

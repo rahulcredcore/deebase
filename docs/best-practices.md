@@ -18,6 +18,7 @@ This guide helps you make informed decisions when using DeeBase, explaining the 
 - [CLI vs Python API: Choosing Your Interface](#cli-vs-python-api-choosing-your-interface)
 - [FastAPI Integration: Building REST APIs](#fastapi-integration-building-rest-apis)
 - [Validation: Data Quality at the Application Layer](#validation-data-quality-at-the-application-layer)
+- [Full-Text Search: When and How](#full-text-search-when-and-how)
 
 ---
 
@@ -1705,6 +1706,7 @@ email:str:unique           # UNIQUE constraint
 bio:Text:nullable          # Allow NULL
 status:str:default=active  # DEFAULT 'active'
 author_id:int:fk=users     # FOREIGN KEY to users.id
+title:str:fts              # Include in FTS index
 
 # Combine multiple modifiers
 email:str:unique:nullable  # Unique but nullable
@@ -2192,6 +2194,81 @@ async def create_user(data: dict):
 
 ---
 
+## Full-Text Search: When and How
+
+DeeBase provides BM25 full-text search via `FTSIndex` and `table.search()`. Understanding when to use FTS vs simpler alternatives helps you choose the right tool.
+
+### FTS vs LIKE/ILIKE
+
+| Approach | Use When | Performance |
+|----------|----------|-------------|
+| `table.lookup(title="exact")` | Exact match on a column | Fast (uses index if available) |
+| `db.q("... LIKE '%word%'")` | Simple substring match | Slow (full table scan) |
+| `db.q("... ILIKE '%word%'")` | Case-insensitive substring (PostgreSQL) | Slow (full table scan) |
+| `table.search("word")` | Natural language search with ranking | Fast (uses FTS index) |
+
+**Use FTS when:**
+- Users type search queries (search boxes, autocomplete)
+- You need relevance ranking (best matches first)
+- Searching across multiple text columns
+- Content is natural language (articles, comments, descriptions)
+
+**Use LIKE/ILIKE when:**
+- Matching patterns or substrings (`%prefix%`)
+- Exact prefix matching (`starts_with%`)
+- Searching non-text data (codes, IDs)
+
+### Language Configuration
+
+The `language` parameter controls stemming and stop word removal:
+
+```python
+from deebase import FTSIndex
+
+# English: "running" matches "run", "runs", "runner"
+FTSIndex("content", language="english")
+
+# Simple: no stemming, just tokenization
+FTSIndex("content", language="simple")
+```
+
+**Common languages:** `english`, `french`, `german`, `spanish`, `simple` (no stemming)
+
+**Choose `"simple"` when:**
+- Content is mixed-language
+- Searching code, identifiers, or technical terms
+- You want exact token matching without stemming
+
+### FTS with xtra() Filters
+
+`search()` respects `xtra()` filters, enabling scoped searches:
+
+```python
+# Search only published articles
+published = articles.xtra(status="published")
+results = await published.search("python tutorial")
+
+# Search within a user's content
+my_articles = articles.xtra(author_id=current_user_id)
+results = await my_articles.search("draft ideas")
+```
+
+### BM25 Scores
+
+When `score=True`, results include relevance scores (negative floats, more negative = more relevant):
+
+```python
+scored = await articles.search("async python", score=True)
+for record, score in scored:
+    print(f"{record['title']}: {score}")
+# "Async Python Guide: -3.2"
+# "Python Basics: -1.1"
+```
+
+Scores are consistent across SQLite and PostgreSQL backends.
+
+---
+
 ## Summary: Quick Decision Guide
 
 | Scenario | Recommendation |
@@ -2226,6 +2303,9 @@ async def create_user(data: dict):
 | **CLI/admin validation** | Use `validators/` directory |
 | **Data entry via CLI** | Use `deebase data insert/list/get/update/delete` |
 | **Web data management** | Use `deebase api serve --admin` |
+| **Full-text search** | Use `FTSIndex` + `table.search()` |
+| **Substring matching** | Use raw SQL with `LIKE`/`ILIKE` |
+| **Multi-column search** | Use `FTSIndex("col1", "col2")` |
 
 ---
 

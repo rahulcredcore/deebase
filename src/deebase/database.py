@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from .table import Table
 from .view import View
 from .types import python_type_to_sqlalchemy, is_optional, Index
+from .fts import FTSIndex
 from .dataclass_utils import extract_annotations
 from .exceptions import (
     ConnectionError as DeeBaseConnectionError,
@@ -139,7 +140,7 @@ class Database:
         pk: Optional[str | list[str]] = None,
         if_not_exists: bool = False,
         replace: bool = False,
-        indexes: Optional[list[str | tuple[str, ...] | Index]] = None,
+        indexes: Optional[list[str | tuple[str, ...] | Index | FTSIndex]] = None,
     ) -> Table:
         """Create a table from a Python class with type annotations.
 
@@ -322,9 +323,19 @@ class Database:
                     ) from e
                 raise
 
-        # Create indexes if specified
+        # Separate regular indexes from FTS indexes
+        regular_indexes = []
+        fts_indexes = []
         if indexes:
-            await self._create_indexes(table_name, sa_table, indexes, annotations)
+            for idx in indexes:
+                if isinstance(idx, FTSIndex):
+                    fts_indexes.append(idx)
+                else:
+                    regular_indexes.append(idx)
+
+        # Create regular indexes
+        if regular_indexes:
+            await self._create_indexes(table_name, sa_table, regular_indexes, annotations)
 
         # Create Table instance with the class as the dataclass
         # (fk_metadata was built earlier, before the if_not_exists check)
@@ -339,6 +350,14 @@ class Database:
 
         # Cache the table
         self._cache_table(table_name, table_instance)
+
+        # Create FTS indexes (needs Table instance for create_fts_index)
+        for fts_idx in fts_indexes:
+            await table_instance.create_fts_index(
+                fts_idx.columns,
+                name=fts_idx.name,
+                language=fts_idx.language,
+            )
 
         return table_instance
 

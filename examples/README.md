@@ -21,6 +21,7 @@ This folder contains runnable examples demonstrating DeeBase features.
 | 14 | [phase14_migrations.py](./phase14_migrations.py) | Database migrations with MigrationRunner |
 | 15 | [phase15_fastapi.py](./phase15_fastapi.py) | FastAPI integration with CRUD routers |
 | 16 | [phase16_data_admin.py](./phase16_data_admin.py) | Data management & admin interface |
+| 18 | [phase18_fts.py](./phase18_fts.py) | Full-text search with BM25 |
 | - | [views_joins_ctes.py](./views_joins_ctes.py) | Using views for JOINs and CTEs |
 | - | [complete_example.py](./complete_example.py) | Full-featured blog showcasing all capabilities |
 | - | [complete_cli_example.py](./complete_cli_example.py) | End-to-end CLI workflow |
@@ -77,6 +78,9 @@ uv run examples/phase15_fastapi.py
 
 # Run Phase 16 example (data management & admin)
 uv run examples/phase16_data_admin.py
+
+# Run Phase 18 example (full-text search)
+uv run examples/phase18_fts.py
 
 # Run views for JOINs and CTEs example
 uv run examples/views_joins_ctes.py
@@ -313,6 +317,30 @@ Demonstrates Phase 12 index features:
 - `table.drop_index(name)` - Remove an index
 - `table.indexes` - List index metadata
 
+### phase18_fts.py
+
+Demonstrates Phase 18 full-text search features:
+- Creating FTS indexes at table creation time with `FTSIndex`
+- Creating FTS indexes post-creation with `create_fts_index()`
+- BM25 search with `table.search()`
+- Column-specific search via `columns` parameter
+- BM25 score retrieval via `score=True`
+- FTS auto-sync (insert/update/delete triggers)
+- FTS introspection with `fts_indexes` property
+- Dropping FTS indexes with `drop_fts_index()`
+- Search with `xtra()` filters
+- Search with dataclass support
+
+**Topics covered:**
+- `FTSIndex("col1", "col2")` - FTS index class
+- `indexes=[FTSIndex("title", "content")]` - FTS at table creation
+- `table.create_fts_index(columns, name, language)` - Post-creation FTS
+- `table.search(query, columns, limit, score)` - BM25 search
+- `table.fts_indexes` - FTS index metadata
+- `table.drop_fts_index(name)` - Remove FTS index
+- SQLite FTS5 virtual tables and sync triggers
+- Negative BM25 scores (more negative = more relevant)
+
 ### phase13_cli.py
 
 Demonstrates Phase 13 CLI features (Python equivalent):
@@ -373,7 +401,7 @@ Demonstrates using views for JOINs and CTEs:
 
 ### complete_example.py
 
-A realistic workflow combining all phases (1-14) using Python API:
+A realistic workflow combining all phases (1-14, 18) using Python API:
 - Defines a blog database schema
 - Creates tables with indexes and FK constraints
 - Populates data with CRUD operations

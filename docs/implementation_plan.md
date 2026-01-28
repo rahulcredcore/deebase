@@ -3643,7 +3643,7 @@ def _load_custom_display(table_name: str, field_name: str):
 6. `README.md` - Update admin description
 7. `CLAUDE.md` - Mark Phase 17 complete
 
-### Phase 18: Full-Text Search (BM25) 🔲 PLANNED
+### Phase 18: Full-Text Search (BM25) ✅ COMPLETE
 
 **Goal:** Add BM25 full-text search support for string/Text columns using SQLite FTS5 (built-in) and PostgreSQL pg_textsearch extension.
 

@@ -581,6 +581,33 @@ except SchemaError as e:
     print(f"Schema error in {e.table_name}.{e.column_name}")
 ```
 
+### Full-Text Search (BM25)
+
+DeeBase provides built-in BM25 full-text search, which is not available in fastlite:
+
+```python
+from deebase import FTSIndex, Text
+
+class Article:
+    id: int
+    title: str
+    content: Text
+
+# Create table with FTS index
+articles = await db.create(Article, pk='id', indexes=[
+    FTSIndex("title", "content", language="english"),
+])
+
+# Search with BM25 ranking
+results = await articles.search("getting started", limit=10)
+
+# Get relevance scores
+scored = await articles.search("python", score=True)
+# [(record, -2.5), (record, -1.3), ...]
+```
+
+This works on both SQLite (FTS5) and PostgreSQL (pg_textsearch).
+
 ### Dataclass Export
 
 ```python

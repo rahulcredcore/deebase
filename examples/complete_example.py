@@ -1,7 +1,7 @@
 """
 Complete Example: Building a Blog Database
 
-This example showcases DeeBase core capabilities from Phases 1-12:
+This example showcases DeeBase core capabilities from Phases 1-12, 18:
 - Phase 1: Raw SQL queries
 - Phase 2: Table creation from Python classes
 - Phase 3: CRUD operations with rich types
@@ -14,6 +14,7 @@ This example showcases DeeBase core capabilities from Phases 1-12:
 - Phase 10: Foreign keys and default values
 - Phase 11: FK relationship navigation
 - Phase 12: Indexes for query optimization
+- Phase 18: Full-text search (BM25)
 
 For FastAPI integration (Phase 15), see: complete_blog_api_example.py
 """
@@ -23,7 +24,7 @@ from typing import Optional
 from datetime import datetime
 from dataclasses import dataclass
 from deebase import (
-    Database, Text, ForeignKey, Index,
+    Database, Text, ForeignKey, Index, FTSIndex,
     NotFoundError, IntegrityError, ValidationError
 )
 
@@ -31,7 +32,7 @@ from deebase import (
 async def main():
     print("=" * 70)
     print("Complete Example: Full-Featured Blog Database")
-    print("Showcasing ALL DeeBase capabilities (Phases 1-12)")
+    print("Showcasing ALL DeeBase capabilities (Phases 1-12, 18)")
     print("=" * 70)
     print()
 
@@ -489,9 +490,45 @@ async def main():
     print()
 
     # =========================================================================
+    # Phase 18: Full-Text Search (BM25)
+    # =========================================================================
+    print("13. Full-text search with BM25 (Phase 18)")
+    print("-" * 70)
+
+    # Create FTS index on post title and content
+    await posts.create_fts_index(["title", "content"])
+    print("   Created FTS index on post(title, content)")
+
+    # Basic search
+    results = await posts.search("deebase")
+    print(f"\n   Search 'deebase' → {len(results)} result(s)")
+    for r in results:
+        print(f"      - {r.title}")
+
+    # Search with BM25 scores
+    results = await posts.search("sqlalchemy patterns", score=True)
+    print(f"\n   Search 'sqlalchemy patterns' (with scores):")
+    for record, score in results:
+        print(f"      {score:>8.4f}  {record.title}")
+
+    # Column-specific search
+    results = await posts.search("advanced", columns=["title"])
+    print(f"\n   Search title only: 'advanced' → {len(results)} result(s)")
+    for r in results:
+        print(f"      - {r.title}")
+
+    # FTS introspection
+    print(f"\n   FTS indexes on posts: {posts.fts_indexes}")
+
+    # Clean up FTS index
+    await posts.drop_fts_index()
+    print("   Dropped FTS index")
+    print()
+
+    # =========================================================================
     # Schema Inspection
     # =========================================================================
-    print("13. Schema inspection")
+    print("14. Schema inspection")
     print("-" * 70)
     print("\nPost table schema (showing FK constraints and defaults):")
     print(posts.schema)
@@ -500,7 +537,7 @@ async def main():
     # =========================================================================
     # Cleanup
     # =========================================================================
-    print("14. Cleanup")
+    print("15. Cleanup")
     print("-" * 70)
     await published_view.drop()
     await db.v.author_stats.drop()
@@ -516,7 +553,7 @@ async def main():
 
     print("=" * 70)
     print("Complete example finished successfully!")
-    print("Core features (Phases 1-12) demonstrated.")
+    print("Core features (Phases 1-12, 18) demonstrated.")
     print("For FastAPI integration (Phase 15), see: complete_blog_api_example.py")
     print("=" * 70)
 

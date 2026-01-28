@@ -196,6 +196,7 @@ deebase table create NAME FIELDS... [OPTIONS]
 | `default=VALUE` | Default value | `status:str:default=active` |
 | `fk=TABLE` | Foreign key to table.id | `author_id:int:fk=users` |
 | `fk=TABLE.COL` | Foreign key to specific column | `category:str:fk=categories.slug` |
+| `fts` | Include in FTS index | `title:str:fts` |
 | `:"docstring"` | Field documentation (for OpenAPI) | `'name:str:"User name"'` |
 
 **Options:**
@@ -395,6 +396,69 @@ deebase index drop NAME [OPTIONS]
 **Example:**
 ```bash
 deebase index drop ix_old_index --yes
+```
+
+#### index fts-create
+
+Create a full-text search (BM25) index on a table.
+
+```bash
+deebase index fts-create TABLE COLUMNS [OPTIONS]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--name NAME` | Custom FTS index name |
+| `--language LANG` | Text processing language (default: english) |
+
+**Examples:**
+
+```bash
+# FTS index on title and content columns
+deebase index fts-create articles title,content --language english
+
+# Single column with custom name
+deebase index fts-create articles title --name title_fts
+```
+
+**When to use:**
+- Adding full-text search to existing tables
+- Enabling natural language search on text columns
+
+#### index fts-list
+
+List FTS indexes on a table.
+
+```bash
+deebase index fts-list TABLE
+```
+
+**Output:**
+```
+FTS indexes on 'articles':
+  article_fts: title, content (language: english)
+```
+
+#### index fts-drop
+
+Drop an FTS index.
+
+```bash
+deebase index fts-drop TABLE [OPTIONS]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--name NAME` | FTS index name to drop |
+| `--yes, -y` | Skip confirmation prompt |
+
+**Example:**
+```bash
+deebase index fts-drop articles --name title_fts --yes
 ```
 
 ---

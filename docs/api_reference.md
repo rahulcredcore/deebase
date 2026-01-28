@@ -502,6 +502,18 @@ print(posts.indexes)
 #  {'name': 'idx_title_unique', 'columns': ['title'], 'unique': True}]
 ```
 
+#### `table.fts_indexes`
+
+List of FTS (full-text search) indexes on this table.
+
+**Returns:** `list[dict]` - List of FTS index definitions: `[{'name': str, 'columns': [str], 'language': str}, ...]`
+
+**Example:**
+```python
+print(articles.fts_indexes)
+# [{'name': 'article_fts', 'columns': ['title', 'content'], 'language': 'english'}]
+```
+
 ### Methods
 
 #### `table.dataclass() -> type`
@@ -834,6 +846,85 @@ await users.drop_index("ix_users_email")
 await posts.drop_index("idx_author_date")
 ```
 
+#### `async table.search(query: str, *, columns: list[str] = None, limit: int = None, score: bool = False) -> list`
+
+Perform BM25 full-text search on the table's FTS-indexed columns.
+
+**When to use:**
+- Natural language search across text columns
+- Relevance-ranked results (BM25 scoring)
+- Finding records by keywords rather than exact match
+
+**When NOT to use:**
+- Exact string matching (use `lookup()` or `xtra()`)
+- Pattern matching (use raw SQL with LIKE/GLOB)
+- No FTS index exists on the table (create one first)
+
+**Parameters:**
+- `query` (str): Search query string
+- `columns` (list[str], optional): Restrict search to specific indexed columns. Defaults to all indexed columns.
+- `limit` (int, optional): Maximum number of results to return
+- `score` (bool, optional): If True, return `(record, score)` tuples. Scores are negative floats where more negative = more relevant. Defaults to False.
+
+**Returns:** `list` - List of matching records (dicts or dataclasses). With `score=True`, returns `list[tuple[record, float]]`.
+
+**Raises:**
+- `InvalidOperationError`: No FTS index exists on this table
+- `ValidationError`: Specified columns are not FTS-indexed
+
+**Example:**
+```python
+# Basic search
+results = await articles.search("getting started", limit=10)
+
+# Search specific columns only
+results = await articles.search("python", columns=["title"])
+
+# Get relevance scores
+scored = await articles.search("async database", score=True)
+for record, relevance in scored:
+    print(f"{record['title']}: {relevance}")
+# Output: "Async Database Guide: -2.5"
+
+# Works with xtra() filters
+user_articles = articles.xtra(author_id=1)
+results = await user_articles.search("tutorial")
+```
+
+#### `async table.create_fts_index(columns: list[str], name: str = None, language: str = "english") -> None`
+
+Create a full-text search index on the table.
+
+**When to use:**
+- Adding FTS capability to an existing table
+- When FTS was not specified at table creation time
+
+**When NOT to use:**
+- When creating a new table (use `FTSIndex` in the `indexes` parameter of `db.create()`)
+
+**Parameters:**
+- `columns` (list[str]): Column names to include in the FTS index
+- `name` (str, optional): FTS index name. Auto-generated if not provided.
+- `language` (str, optional): Language for text processing (stemming, stop words). Defaults to `"english"`.
+
+**Example:**
+```python
+await articles.create_fts_index(["title", "content"])
+await articles.create_fts_index(["title"], name="title_fts", language="english")
+```
+
+#### `async table.drop_fts_index(name: str = None) -> None`
+
+Drop a full-text search index from the table.
+
+**Parameters:**
+- `name` (str, optional): FTS index name to drop. If not provided, drops the default FTS index.
+
+**Example:**
+```python
+await articles.drop_fts_index("article_fts")
+```
+
 #### `async table.get_parent(record, fk_column) -> dict | Any | None`
 
 Navigate to a parent record via a foreign key column. This is the power user API for FK navigation.
@@ -1083,6 +1174,56 @@ articles = await db.create(
     ]
 )
 ```
+
+#### `FTSIndex`
+
+Full-text search index definition for BM25 search. Used in the `indexes` parameter of `db.create()` or with `table.create_fts_index()`.
+
+```python
+from deebase import FTSIndex
+
+# Multi-column FTS index
+fts = FTSIndex("title", "content", language="english")
+
+# Single column with custom name
+fts = FTSIndex("title", name="title_fts")
+```
+
+**Constructor:**
+- `FTSIndex(*columns: str, name: str = None, language: str = "english")`
+
+**Parameters:**
+- `*columns` (str): One or more column names to index for full-text search
+- `name` (str, optional): FTS index name. Auto-generated if not provided.
+- `language` (str, optional): Language for stemming and stop words. Defaults to `"english"`.
+
+**Raises:**
+- `ValueError`: If no columns are provided
+
+**Example usage in `db.create()`:**
+```python
+from deebase import FTSIndex
+
+class Article:
+    id: int
+    title: str
+    content: Text
+
+articles = await db.create(
+    Article,
+    pk='id',
+    indexes=[
+        FTSIndex("title", "content", language="english"),
+    ]
+)
+
+# Search using BM25
+results = await articles.search("getting started", limit=10)
+```
+
+**Backend details:**
+- **SQLite**: Creates FTS5 virtual table with porter unicode61 tokenizer + auto-sync triggers
+- **PostgreSQL**: Creates pg_textsearch BM25 index with `USING bm25()` syntax
 
 **Example (ForeignKey):**
 ```python

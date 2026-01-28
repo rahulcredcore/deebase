@@ -1020,6 +1020,265 @@ class Table:
             stmt = stmt.where(self._sa_table.c[col_name] == value)
         return stmt
 
+    # ------------------------------------------------------------------
+    # Full-Text Search (FTS) — Phase 18
+    # ------------------------------------------------------------------
+
+    @property
+    def fts_indexes(self) -> list[dict]:
+        """List of FTS indexes on this table.
+
+        Returns:
+            List of dicts with 'name', 'columns', and 'language' keys.
+
+        Example:
+            >>> articles.fts_indexes
+            [{'name': 'article_fts', 'columns': ['title', 'content'], 'language': 'english'}]
+        """
+        return [dict(idx) for idx in getattr(self, '_fts_indexes', [])]
+
+    async def create_fts_index(
+        self,
+        columns: str | list[str],
+        name: Optional[str] = None,
+        language: str = "english",
+    ) -> None:
+        """Create a full-text search index on the table.
+
+        Args:
+            columns: Column name(s) to include in the FTS index
+            name: Optional index name. Auto-generated as '{table}_fts' if not provided.
+            language: Language for stemming/tokenization (default: "english")
+
+        Example:
+            >>> await articles.create_fts_index(["title", "content"])
+            >>> await articles.create_fts_index("title", name="title_fts")
+        """
+        from .fts import (
+            generate_sqlite_fts_sql,
+            generate_pg_fts_create_sql,
+            _fts_table_name,
+        )
+
+        if isinstance(columns, str):
+            columns = [columns]
+
+        # Validate columns exist
+        for col_name in columns:
+            if col_name not in self._sa_table.c:
+                raise ValidationError(
+                    f"Column '{col_name}' not found in table '{self._name}'",
+                    field=col_name,
+                )
+
+        # Get PK column (needed for SQLite content_rowid)
+        pk_cols = list(self._sa_table.primary_key.columns)
+        if not pk_cols:
+            raise ValidationError(
+                f"Table '{self._name}' has no primary key. FTS requires a primary key."
+            )
+        pk_column = pk_cols[0].name
+
+        dialect = self._engine.dialect.name
+
+        if dialect == "sqlite":
+            stmts = generate_sqlite_fts_sql(
+                self._name, columns, pk_column,
+                index_name=name, language=language,
+            )
+        else:
+            # PostgreSQL
+            stmts = generate_pg_fts_create_sql(
+                self._name, columns,
+                index_name=name, language=language,
+            )
+
+        async with self._session_scope() as (session, should_manage):
+            try:
+                for stmt in stmts:
+                    await session.execute(sa.text(stmt))
+                if should_manage:
+                    await session.commit()
+            except Exception:
+                if should_manage:
+                    await session.rollback()
+                raise
+
+        # Track FTS index metadata
+        fts_name = _fts_table_name(self._name, name)
+        if not hasattr(self, '_fts_indexes'):
+            self._fts_indexes: list[dict] = []
+        self._fts_indexes.append({
+            'name': fts_name,
+            'columns': list(columns),
+            'language': language,
+        })
+
+    async def drop_fts_index(self, name: Optional[str] = None) -> None:
+        """Drop a full-text search index.
+
+        Args:
+            name: FTS index name. If not provided, drops '{table}_fts'.
+
+        Example:
+            >>> await articles.drop_fts_index("title_fts")
+        """
+        from .fts import (
+            generate_sqlite_fts_drop_sql,
+            generate_pg_fts_drop_sql,
+            _fts_table_name,
+        )
+
+        fts_name = _fts_table_name(self._name, name)
+        dialect = self._engine.dialect.name
+
+        # Find the FTS index metadata to get column list (needed for PG drop)
+        fts_meta = None
+        for idx in getattr(self, '_fts_indexes', []):
+            if idx['name'] == fts_name:
+                fts_meta = idx
+                break
+
+        if dialect == "sqlite":
+            stmts = generate_sqlite_fts_drop_sql(self._name, index_name=name)
+        else:
+            fts_columns = fts_meta['columns'] if fts_meta else []
+            stmts = generate_pg_fts_drop_sql(self._name, fts_columns, index_name=name)
+
+        async with self._session_scope() as (session, should_manage):
+            try:
+                for stmt in stmts:
+                    await session.execute(sa.text(stmt))
+                if should_manage:
+                    await session.commit()
+            except Exception:
+                if should_manage:
+                    await session.rollback()
+                raise
+
+        # Remove from tracked metadata
+        if hasattr(self, '_fts_indexes'):
+            self._fts_indexes = [
+                idx for idx in self._fts_indexes if idx['name'] != fts_name
+            ]
+
+    async def search(
+        self,
+        query: str,
+        *,
+        columns: Optional[list[str]] = None,
+        limit: Optional[int] = None,
+        score: bool = False,
+    ) -> list:
+        """Search the table using full-text search (BM25).
+
+        Requires an FTS index to have been created on the table.
+
+        Args:
+            query: Search query string
+            columns: Optional list of columns to search (defaults to all indexed)
+            limit: Maximum number of results
+            score: If True, return list of (record, score) tuples.
+                   Scores are negative floats (more negative = more relevant).
+
+        Returns:
+            List of records (dicts or dataclasses), or list of (record, score)
+            tuples if score=True.
+
+        Raises:
+            ValidationError: If no FTS index exists on this table
+
+        Example:
+            >>> results = await articles.search("getting started")
+            >>> scored = await articles.search("python", score=True, limit=5)
+            >>> for record, s in scored:
+            ...     print(f"{record['title']} (score: {s})")
+        """
+        from .fts import generate_sqlite_search_sql, generate_pg_search_sql
+
+        fts_list = getattr(self, '_fts_indexes', [])
+        if not fts_list:
+            raise ValidationError(
+                f"No FTS index found on table '{self._name}'. "
+                f"Create one with: await table.create_fts_index([columns])"
+            )
+
+        # Find the right FTS index
+        fts_idx = None
+        if columns:
+            # Find an index that covers the requested columns
+            for idx in fts_list:
+                if all(c in idx['columns'] for c in columns):
+                    fts_idx = idx
+                    break
+            if fts_idx is None:
+                raise ValidationError(
+                    f"No FTS index covers columns {columns} on table '{self._name}'"
+                )
+        else:
+            # Use the first FTS index
+            fts_idx = fts_list[0]
+
+        pk_cols = list(self._sa_table.primary_key.columns)
+        pk_column = pk_cols[0].name if pk_cols else "rowid"
+
+        dialect = self._engine.dialect.name
+
+        if dialect == "sqlite":
+            sql, params = generate_sqlite_search_sql(
+                self._name, fts_idx['name'], pk_column,
+                query, columns=columns, limit=limit, score=score,
+            )
+        else:
+            sql, params = generate_pg_search_sql(
+                self._name, fts_idx['columns'], query,
+                index_name=fts_idx['name'],
+                language=fts_idx.get('language', 'english'),
+                limit=limit, score=score,
+                search_columns=columns,
+            )
+
+        # Apply xtra filters by wrapping in a subquery
+        if self._xtra_filters:
+            # Wrap the search SQL as a subquery and add WHERE filters
+            xtra_clauses = " AND ".join(
+                f"sub.{col} = :xtra_{col}" for col in self._xtra_filters
+            )
+            sql = f"SELECT sub.* FROM ({sql}) AS sub WHERE {xtra_clauses}"
+            for col, val in self._xtra_filters.items():
+                params[f"xtra_{col}"] = val
+
+        async with self._session_scope() as (session, should_manage):
+            try:
+                result = await session.execute(sa.text(sql), params)
+                rows = result.fetchall()
+                if should_manage:
+                    await session.commit()
+
+                if score:
+                    records = []
+                    for row in rows:
+                        mapping = dict(row._mapping)
+                        s = mapping.pop('_score')
+                        record = self._to_record_from_dict(mapping)
+                        records.append((record, s))
+                    return records
+                else:
+                    return [self._to_record(row) for row in rows]
+            except Exception:
+                if should_manage:
+                    await session.rollback()
+                raise
+
+    def _to_record_from_dict(self, data: dict) -> Any:
+        """Convert a dict to record (dict or dataclass) based on configuration."""
+        from dataclasses import is_dataclass
+
+        if self._dataclass_cls and is_dataclass(self._dataclass_cls):
+            from .dataclass_utils import dict_to_dataclass
+            return dict_to_dataclass(data, self._dataclass_cls)
+        return data
+
     def __getattr__(self, name: str):
         """Dispatch unknown attributes to the underlying SQLAlchemy table."""
         return getattr(self._sa_table, name)
