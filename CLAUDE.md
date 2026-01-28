@@ -47,6 +47,9 @@ DeeBase follows fastlite's philosophy of providing a simple, interactive databas
 ✅ **Phase 15 Complete** - FastAPI Integration (CRUD routers, Pydantic models, FK validation)
 ✅ **Phase 16 Complete** - Data Management & Admin Interface (CLI data commands, Django-like admin UI)
 🔄 **Phase 17 Ongoing** - Admin UI Enhancements (read-only detail view, clickable rows, custom field renderers)
+🔲 **Phase 18 Planned** - Full-Text Search (BM25) — FTSIndex class, table.search(), SQLite FTS5 + PostgreSQL pg_textsearch
+
+**Phase 18 Plan:** See `docs/implementation_plan.md` (Phase 18 section) for detailed implementation plan.
 
 **Completed Features:**
 - ✅ Database class with async engine and `q()` method
