@@ -102,18 +102,19 @@ class Database:
             finally:
                 _active_session.reset(token)
 
-    async def q(self, query: str) -> list[dict]:
+    async def q(self, query: str, params: dict | None = None) -> list[dict]:
         """Execute a raw SQL query and return results as dicts.
 
         Args:
-            query: SQL query string
+            query: SQL query string (supports :param_name bind parameters)
+            params: Optional dict of bind parameter values
 
         Returns:
             List of dictionaries representing rows (empty list for DDL/DML)
         """
         try:
             async with self._session() as session:
-                result = await session.execute(sa.text(query))
+                result = await session.execute(sa.text(query), params or {})
                 # Check if the result returns rows (SELECT) or not (CREATE, INSERT, etc.)
                 if result.returns_rows:
                     return [dict(row._mapping) for row in result.fetchall()]
